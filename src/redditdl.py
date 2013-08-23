@@ -316,7 +316,7 @@ if __name__ == '__main__':
 
     for (path, subreddits) in lists:
         list_destination = os.path.join(
-            destination, os.path.basename(path).rstrip(list_extension))
+            destination, os.path.basename(path)[:-len(list_extension)])
         if not os.path.isdir(list_destination):
             if os.path.exists(list_destination):
                 print("Invalid destination: {0}. Skipping list {1}".format(
