@@ -27,10 +27,7 @@ def extract_imgur_album_urls(album_url):
     Returns:
         List of qualified imgur URLs
     """
-    try:
-        response = urlopen(album_url)
-    except HTTPError:
-        return []
+    response = urlopen(album_url)
     info = response.info()
 
     # Rudimentary check to ensure the URL actually specifies an HTML file
@@ -81,10 +78,7 @@ def download_from_url(url, dest_file):
     if pathexists(dest_file):
         raise FileExistsException('URL [%s] already downloaded.' % url)
 
-    try:
-        response = urlopen(url)
-    except HTTPError:
-        return
+    response = urlopen(url)
 
     info = response.info()
 
@@ -207,7 +201,21 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                 continue
 
             FILECOUNT = 0
-            URLS = extract_urls(ITEM['url'])
+            URLS = []
+            try:
+                URLS = extract_urls(ITEM['url'])
+            except HTTPError as ERROR:
+                if not quiet:
+                    print('    HTTP ERROR: Code %s for %s.' % (ERROR.code, URL))
+                ERRORS += 1
+            except URLError as ERROR:
+                if not quiet:
+                    print('    URL ERROR: %s!' % (URL))
+                ERRORS += 1
+            except InvalidURL as ERROR:
+                if not quiet:
+                    print('    Invalid URL: %s!' % (URL))
+                ERRORS += 1
             for URL in URLS:
                 try:
                     # Trim any http query off end of file extension.
@@ -239,7 +247,7 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                 except FileExistsException as ERROR:
                     if not quiet:
                         print('    %s' % (ERROR))
-                    ERRORS += 1
+                    SKIPPED += 1
                     if update:
                         if not quiet:
                             print('    Update complete, exiting.')
@@ -248,15 +256,15 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                 except HTTPError as ERROR:
                     if not quiet:
                         print('    HTTP ERROR: Code %s for %s.' % (ERROR.code, URL))
-                    FAILED += 1
+                    ERRORS += 1
                 except URLError as ERROR:
                     if not quiet:
                         print('    URL ERROR: %s!' % (URL))
-                    FAILED += 1
+                    ERRORS += 1
                 except InvalidURL as ERROR:
                     if not quiet:
                         print('    Invalid URL: %s!' % (URL))
-                    FAILED += 1
+                    ERRORS += 1
 
             if FINISHED:
                 break
