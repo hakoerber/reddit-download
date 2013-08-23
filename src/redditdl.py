@@ -130,14 +130,17 @@ def main():
             print("Starting download from /r/{0} to {1}".
                   format(subreddit, destination))
 
-            RedditImageGrab.redditdownload.download(subreddit, destination,
-                                                    last="", score=0, num=0,
-                                                    update=False, sfw=False,
-                                                    nsfw=False, regex=None,
-                                                    verbose=False, quiet=False)
+            (total, downloaded, skipped, errors) =
+                RedditImageGrab.redditdownload.download(
+                    subreddit, destination, last="", score=0, num=0,
+                    update=False, sfw=False, nsfw=False, regex=None,
+                    verbose=False, quiet=False)
 
             print("Done downloading from /r/{0} to {1}".
                   format(subreddit, destination))
+            print ("Downloaded: {0}, skipped/errors {1}/{2}, ",
+                   "total processed: {3}".format(downloaded, skipped, errors,
+                                                 total))
             threadqueue.task_done()
 
     for (path, subreddits) in lists:
