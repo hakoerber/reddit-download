@@ -99,7 +99,6 @@ def download_subreddit():
                 print("Invalid destination: {0}. Skipping subreddit {1}".format(
                     subreddit_destination, subreddit))
                 continue
-            print("creating ", subreddit_destination)
             os.mkdir(subreddit_destination)
 
         print("Starting download from /r/{0} to {1}".
@@ -159,11 +158,6 @@ if __name__ == '__main__':
                       metavar="EXT", help="change the extension of subreddit "
                       "list files [default: {0}]".
                       format(DEFAULT_LIST_EXTENSION))
-    parser.add_option("--flood-timeout", action="store", type="int",
-                      dest="flood_timeout", default=DEFAULT_FLOOD_TIMEOUT,
-                      metavar="MILLISECONDS", help="wait MILLISECONDS between "
-                      "connections to the server [default: {0}]".
-                      format(DEFAULT_FLOOD_TIMEOUT))
     parser.add_option("--shuffle", action="store", dest="shuffle",
                       type="string", default=DEFAULT_SHUFFLE, metavar="OPTIONS",
                       help="changes the shuffling behaviour.Valid OPTIONS "
@@ -189,6 +183,12 @@ if __name__ == '__main__':
     group.add_option("--max", action="store", type="int", dest="max_downloads",
                      default=0, help="download a maximum of NUM pictures per "
                      "subreddit", metavar="NUM")
+    group.add_option("--flood-timeout", action="store", type="int",
+                     dest="flood_timeout", default=DEFAULT_FLOOD_TIMEOUT,
+                     metavar="MILLISECONDS", help="wait MILLISECONDS between "
+                     "connections to the server [default: {0}]".
+                     format(DEFAULT_FLOOD_TIMEOUT))
+
     parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, "output control")
@@ -267,7 +267,7 @@ if __name__ == '__main__':
                     lists.append((list_path, list()))
                     paths.append(list_path)
         elif os.path.isfile(path):
-            if check_file(path):
+            if check_file(path, list_extension):
                 if path in paths:
                     print("{0} already encountered, ignored.".format(path))
                 else:
