@@ -40,6 +40,9 @@ DEFAULT_SHUFFLE_LISTS = False
 DEFAULT_SHUFFLE_LIST_SUBREDDITS = False
 DEFAULT_SHUFFLE_ALL_SUBREDDITS = False
 
+EXIT_INVALID_DESTINATION = 1
+ERROR_INVALID_COMMAND_LINE = 2 # same in optparse
+
 COMMENT_CHAR = "#"
 
 def check_file(file_path, list_extension):
@@ -167,6 +170,7 @@ def main():
         if [shuffle_lists, shuffle_list_subreddits, shuffle_all_subreddits].\
                 count(True) != len(options):
             print("--shuffle: invalid options: {0}".format(shuffle))
+            sys.exit(ERROR_INVALID_COMMAND_LINE)
 
     if list_extension[0] != '.':
         list_extension = ".{0}".format(list_extension)
@@ -178,13 +182,13 @@ def main():
         if not options.create_destination:
             print("{0} does not exist and shall now be created.".
                 format(destination))
-            sys.exit(1)
+            sys.exit(EXIT_INVALID_DESTINATION)
         else:
             os.mkdir(destination)
 
     if not os.path.isdir(destination):
         print("{0} is not a valid directory.".format(destination))
-        sys.exit(2)
+        sys.exit(EXIT_INVALID_DESTINATION)
 
     # TODO Dude, there is some work left in the next block ...
     paths = list() # lazyness
@@ -240,6 +244,10 @@ def main():
 
 
     threadqueue = queue.Queue()
+    total_processed = 0
+    total_downloaded = 0
+    total_skipped = 0
+    total_errors = 0
 
     # Worker method
     def download_subreddit():
@@ -257,6 +265,12 @@ def main():
                     subreddit, destination, last="", score=score,
                     num=max_downloads, update=False, sfw=(not no_sfw),
                     nsfw=(not no_nsfw), regex=regex, verbose=False, quiet=True)
+
+            # TODO race condition or something
+            total_proceessed += total
+            total_downloaded += downloaded
+            total_skipped += skipped
+            total_errors += errors
 
             print("Done downloading from /r/{0} to {1}".
                   format(subreddit, destination))
@@ -281,6 +295,13 @@ def main():
         print("Downloads from subreddits in list \"{0}\" completed, can be"
               "found in {1}".
               format(os.path.basename(path), destination))
+
+    print("--------------------------------------")
+    print("Finished downloading.")
+    print("Total downloaded files: {0}".format(total_downloaded))
+    print("Total skipped/errors:   {0}/{1}".format(total_skipped, total_errors))
+    print("Total processed:        {0}".format(total_processed))
+    print("--------------------------------------")
 
 
 
