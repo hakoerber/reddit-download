@@ -21,6 +21,7 @@ import sys
 import optparse
 
 LIST_EXTENSION = ".list"
+COMMENT_CHAR = "#"
 
 def check_file(file_path):
     return (file_path.endswith(LIST_EXTENSION)
@@ -38,6 +39,17 @@ def get_lists(directory, recursive):
     else:
         return [path for path in os.listdir(directory)
                 if check_file(path)]
+
+def check_line(line):
+    return line and not line.startswith(COMMENT_CHAR)
+
+def parse_file(path):
+    subreddits = list()
+    for line in open(path):
+        line = line.strip()
+        if check_line(line):
+            subreddits.append(line)
+    return subreddits
 
 def main():
     usage = "Usage: %prog [options] FILE/DIRECTORY..."
@@ -71,16 +83,34 @@ def main():
     if len(args) < 1:
         parser.error("expected at least one argument")
 
+    paths = list() # lazyness
+    # [ ( PATH , [ SUBREDDITS , ... ] ) , ... ]
+    # Cannot be a dict, otherwise correct order would not be guaranteed
     lists = list()
     for path in args:
         if os.path.isdir(path):
-            lists.extend(get_lists(path, recursive=options.recursive))
+            for path in get_lists(path, recursive=options.recursive):
+                if path in paths:
+                    print("{0} already encountered, ignored.".format(path))
+                else:
+                    lists.append((path, list()))
+                    paths.append(path)
         elif os.path.isfile(path):
             if check_file(path):
-                lists.append(path)
+                if path in paths:
+                    print("{0} already encountered, ignored.".format(path))
+                else:
+                    lists.append((path, list()))
+                    paths.append(path)
         else:
             print("Invalid path: {0} not found.".format(
                 path))
+
+    for (path, subreddits) in lists:
+        subreddits.extend(parse_file(path))
+
+
+
 
 if __name__ == '__main__':
     main()
