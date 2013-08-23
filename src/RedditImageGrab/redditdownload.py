@@ -1,13 +1,14 @@
 """Download images from a reddit.com subreddit."""
 
 import re
-import StringIO
-from urllib2 import urlopen, HTTPError, URLError
-from httplib import InvalidURL
+import io
+from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from http.client import InvalidURL
 from argparse import ArgumentParser
 from os.path import exists as pathexists, join as pathjoin, basename as pathbasename, splitext as pathsplitext
 from os import mkdir
-from reddit import getitems
+from .reddit import getitems
 
 
 class WrongFileTypeException(Exception):
@@ -39,7 +40,7 @@ def extract_imgur_album_urls(album_url):
 
     items = []
 
-    memfile = StringIO.StringIO(filedata)
+    memfile = io.StringIO(filedata)
 
     for line in memfile.readlines():
         results = re.findall(match, line)
@@ -78,7 +79,7 @@ def download_from_url(url, dest_file):
     info = response.info()
 
     # Work out file type either from the response or the url.
-    if 'content-type' in info.keys():
+    if 'content-type' in list(info.keys()):
         filetype = info['content-type']
     elif url.endswith('.jpg') or url.endswith('.jpeg'):
         filetype = 'image/jpeg'
@@ -154,7 +155,7 @@ if __name__ == "__main__":
     PARSER.add_argument('-verbose', default=False, action='store_true', required=False, help='Enable verbose output.')
     ARGS = PARSER.parse_args()
 
-    print 'Downloading images from "%s" subreddit' % (ARGS.reddit)
+    print('Downloading images from "%s" subreddit' % (ARGS.reddit))
 
     TOTAL = DOWNLOADED = ERRORS = SKIPPED = FAILED = 0
     FINISHED = False
@@ -182,25 +183,25 @@ if __name__ == "__main__":
             identifier = ITEM["title"].replace('/', '-').lstrip(".")
             if ITEM['score'] < ARGS.score:
                 if ARGS.verbose:
-                    print '    SCORE: %s has score of %s which is lower than required score of %s.' % (identifier, ITEM['score'], ARGS.score)
+                    print('    SCORE: %s has score of %s which is lower than required score of %s.' % (identifier, ITEM['score'], ARGS.score))
 
                 SKIPPED += 1
                 continue
             elif ARGS.sfw and ITEM['over_18']:
                 if ARGS.verbose:
-                    print '    NSFW: %s is marked as NSFW.' % (identifier)
+                    print('    NSFW: %s is marked as NSFW.' % (identifier))
 
                 SKIPPED += 1
                 continue
             elif ARGS.nsfw and not ITEM['over_18']:
                 if ARGS.verbose:
-                    print '    Not NSFW, skipping %s' % (identifier)
+                    print('    Not NSFW, skipping %s' % (identifier))
 
                 SKIPPED += 1
                 continue
             elif ARGS.regex and not re.match(RE_RULE, ITEM['title']):
                 if ARGS.verbose:
-                    print '    Regex match failed'
+                    print('    Regex match failed')
 
                 SKIPPED += 1
                 continue
@@ -223,7 +224,7 @@ if __name__ == "__main__":
                     download_from_url(URL, FILEPATH)
 
                     # Image downloaded successfully!
-                    print '    Downloaded URL [%s] as [%s].' % (URL, FILENAME)
+                    print('    Downloaded URL [%s] as [%s].' % (URL, FILENAME))
                     DOWNLOADED += 1
                     FILECOUNT += 1
 
@@ -231,23 +232,23 @@ if __name__ == "__main__":
                         FINISHED = True
                         break
                 except WrongFileTypeException as ERROR:
-                    print '    %s' % (ERROR)
+                    print('    %s' % (ERROR))
                     SKIPPED += 1
                 except FileExistsException as ERROR:
-                    print '    %s' % (ERROR)
+                    print('    %s' % (ERROR))
                     ERRORS += 1
                     if ARGS.update:
-                        print '    Update complete, exiting.'
+                        print('    Update complete, exiting.')
                         FINISHED = True
                         break
                 except HTTPError as ERROR:
-                    print '    HTTP ERROR: Code %s for %s.' % (ERROR.code, URL)
+                    print('    HTTP ERROR: Code %s for %s.' % (ERROR.code, URL))
                     FAILED += 1
                 except URLError as ERROR:
-                    print '    URL ERROR: %s!' % (URL)
+                    print('    URL ERROR: %s!' % (URL))
                     FAILED += 1
                 except InvalidURL as ERROR:
-                    print '    Invalid URL: %s!' % (URL)
+                    print('    Invalid URL: %s!' % (URL))
                     FAILED += 1
 
             if FINISHED:
@@ -255,4 +256,4 @@ if __name__ == "__main__":
 
         LAST = ITEM['id']
 
-    print 'Downloaded %d files (Processed %d, Skipped %d, Exists %d)' % (DOWNLOADED, TOTAL, SKIPPED, ERRORS)
+    print('Downloaded %d files (Processed %d, Skipped %d, Exists %d)' % (DOWNLOADED, TOTAL, SKIPPED, ERRORS))

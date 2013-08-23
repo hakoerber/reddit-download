@@ -1,6 +1,6 @@
 """Return list of items from a sub-reddit of reddit.com."""
-
-from urllib2 import urlopen, Request, HTTPError
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError
 from json import JSONDecoder
 
 
@@ -18,18 +18,18 @@ def getitems(subreddit, previd=''):
         json = urlopen(req).read() ; data = JSONDecoder().decode(json)
         items = [x['data'] for x in data['data']['children']]
     except HTTPError as ERROR:
-        print '\tHTTP ERROR: Code %s for %s.' % (ERROR.code, url)
+        print('\tHTTP ERROR: Code %s for %s.' % (ERROR.code, url))
         items = []
     return items
 
 if __name__ == "__main__":
 
-    print 'Recent items for Python.'
+    print('Recent items for Python.')
     ITEMS = getitems('python')
     for ITEM in ITEMS:
-        print '\t%s - %s' % (ITEM['title'], ITEM['url'])
+        print('\t%s - %s' % (ITEM['title'], ITEM['url']))
 
-    print 'Previous items for Python.'
+    print('Previous items for Python.')
     OLDITEMS = getitems('python', ITEMS[-1]['id'])
     for ITEM in OLDITEMS:
-        print '\t%s - %s' % (ITEM['title'], ITEM['url'])
+        print('\t%s - %s' % (ITEM['title'], ITEM['url']))
