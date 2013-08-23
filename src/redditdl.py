@@ -21,8 +21,8 @@ import sys
 import optparse
 import queue
 import threading
-import time
-import random
+
+import RedditImageGrab.redditdownload
 
 LIST_EXTENSION = ".list"
 COMMENT_CHAR = "#"
@@ -127,9 +127,17 @@ def main():
             except queue.Empty:
                 print("No more items to process. Thread done.")
                 return
-            print("start downlading from ", subreddit)
-            time.sleep(random.randrange(1,10))
-            print("done downloading from ", subreddit)
+            print("Starting download from /r/{0} to {1}".
+                  format(subreddit, destination))
+
+            RedditImageGrab.redditdownload.download(subreddit, destination,
+                                                    last="", score=0, num=0,
+                                                    update=False, sfw=False,
+                                                    nsfw=False, regex=None,
+                                                    verbose=False, quiet=False)
+
+            print("Done downloading from /r/{0} to {1}".
+                  format(subreddit, destination))
             threadqueue.task_done()
 
     for (path, subreddits) in lists:
@@ -141,7 +149,6 @@ def main():
         # Start processing threads
         for i in range(MAX_THREADS):
             thread = threading.Thread(target=download_subreddit)
-            print("Starting thread...")
             thread.start()
         threadqueue.join()
         print("Downloads from subreddits in list \"{0}\" completed, can be"
