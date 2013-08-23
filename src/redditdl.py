@@ -24,13 +24,12 @@ import threading
 
 import RedditImageGrab.redditdownload
 
-LIST_EXTENSION = ".list"
+DEFAULT_LIST_EXTENSION = ".list"
 COMMENT_CHAR = "#"
-MAX_THREADS = 10
 
 def check_file(file_path):
-    return (file_path.endswith(LIST_EXTENSION)
-            and os.path.basename(file_path) != LIST_EXTENSION)
+    return (file_path.endswith(list_extension)
+            and os.path.basename(file_path) != list_extension)
 
 def get_lists(directory, recursive):
     if recursive:
@@ -67,6 +66,35 @@ def main():
                       default=os.getcwd(),
                       help="the directory to download to, defaults to the "
                       "current working directory")
+    parser.add_option("-c", "--create-dest", dest="create_destination",
+                      default=False, help="create the destination directory if "
+                      "it does not exist", action="store_true")
+    parser.add_option("-t", "--threads", action="store", type="int",
+                      dest="max_threads", default=10, metavar="NUM",
+                      help="create a maximum of NUM threads [default: 10]")
+    parser.add_option("-e", "--extension", action="store", type="string",
+                      dest="list_extension", default=DEFAULT_LIST_EXTENSION,
+                      metavar="EXT", help="change the extension of subreddit "
+                      "list files [default: .list]")
+
+    group = optparse.OptionGroup(parser, "filter options")
+    group.add_option("--no-sfw", action="store_true", dest="nosfw",
+                     default=False, help="do not download images that are sfw")
+    group.add_option("--no-nsfw", action="store_true", dest="nonsfw",
+                     default=False, help="do not download images that are nsfw")
+    group.add_option("--score", action="store", type="int", dest="score",
+                     default=0, help="do not download images with a rating "
+                     "lower than SCORE", metavar="SCORE")
+    group.add_option("--regex", action="store", type="string", dest="regex",
+                     default=None, help="only download images with titles that "
+                     "match the given regular expression")
+    parser.add_option_group(group)
+
+    group = optparse.OptionGroup(parser, "download options")
+    group.add_option("--max", action="store", type="int", dest="max_downloads",
+                     default=0, help="download a maximum of NUM pictures per "
+                     "subreddit", metavar="NUM")
+    parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, "output control")
     group.add_option("-q", "--quiet", action="store_false", dest="verbose",
@@ -80,15 +108,34 @@ def main():
                      help="print debug information")
     parser.add_option_group(group)
 
-    #group = optparse.OptionGroup(parser, "standard options")
-    #parser.add_option_group(group)
-
     (options, args) = parser.parse_args(sys.argv[1:])
+
+    destination = options.destination
+    regex = options.regex
+    score = options.score
+    nosfw = options.nosfw
+    nonsfw = options.nonsfw
+    max_downloads = options.max_downloads
+    max_threads = options.max_threads
+    list_extension = options.list_extension
+    if list_extension[0] != '.':
+        list_extension = ".{0}".format(list_extension)
 
     if len(args) < 1:
         parser.error("expected at least one argument")
 
-    destination = options.destination
+    if not os.path.exists(destination):
+        if not options.create_destination:
+            print("{0} does not exist and shall now be created.".
+                format(destination))
+            sys.exit(1)
+        else:
+            os.mkdir(destination)
+
+    if not os.path.isdir(destination):
+        print("{0} is not a valid directory.".format(destination))
+        sys.exit(2)
+
 
     # TODO Dude, there is some work left in the next block ...
     paths = list() # lazyness
@@ -130,11 +177,11 @@ def main():
             print("Starting download from /r/{0} to {1}".
                   format(subreddit, destination))
 
-            (total, downloaded, skipped, errors) =
+            (total, downloaded, skipped, errors) = \
                 RedditImageGrab.redditdownload.download(
-                    subreddit, destination, last="", score=0, num=0,
-                    update=False, sfw=False, nsfw=False, regex=None,
-                    verbose=False, quiet=False)
+                    subreddit, destination, last="", score=score,
+                    num=max_downloads, update=False, sfw=(not nosfw),
+                    nsfw=(not nonsfw), regex=regex, verbose=False, quiet=True)
 
             print("Done downloading from /r/{0} to {1}".
                   format(subreddit, destination))
@@ -150,7 +197,7 @@ def main():
             # Feed the queue
             threadqueue.put((subreddit, destination))
         # Start processing threads
-        for i in range(MAX_THREADS):
+        for i in range(min(len(subreddits), max_threads)):
             thread = threading.Thread(target=download_subreddit)
             thread.start()
         threadqueue.join()
