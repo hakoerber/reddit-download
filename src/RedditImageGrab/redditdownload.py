@@ -146,13 +146,13 @@ def extract_urls(url):
     return urls
 
 
-# returns a tuple: (total_processed, downoaded, errors, skipped, failed)
+# returns a tuple: (total_processed, downoaded, errors, skipped)
 def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
              verbose, quiet):
     if not quiet:
         print('Downloading images from "%s" subreddit' % (subreddit))
 
-    TOTAL = DOWNLOADED = ERRORS = SKIPPED = FAILED = 0
+    TOTAL = DOWNLOADED = ERRORS = SKIPPED = 0
     FINISHED = False
 
     # Create the specified directory if it doesn't already exist.
@@ -216,6 +216,10 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                 if not quiet:
                     print('    Invalid URL: %s!' % (URL))
                 ERRORS += 1
+            except TimeoutError as ERROR:
+                if not quiet:
+                    print('    Connection timed out to %s!' % (URL))
+                ERRORS += 1
             for URL in URLS:
                 try:
                     # Trim any http query off end of file extension.
@@ -264,6 +268,10 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                 except InvalidURL as ERROR:
                     if not quiet:
                         print('    Invalid URL: %s!' % (URL))
+                    ERRORS += 1
+                except TimeoutError as ERROR:
+                    if not quiet:
+                        print('    Connection timed out to %s!' % (URL))
                     ERRORS += 1
 
             if FINISHED:
