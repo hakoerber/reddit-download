@@ -19,9 +19,14 @@
 import os
 import sys
 import optparse
+import queue
+import threading
+import time
+import random
 
 LIST_EXTENSION = ".list"
 COMMENT_CHAR = "#"
+MAX_THREADS = 10
 
 def check_file(file_path):
     return (file_path.endswith(LIST_EXTENSION)
@@ -83,6 +88,9 @@ def main():
     if len(args) < 1:
         parser.error("expected at least one argument")
 
+    destination = options.destination
+
+    # TODO Dude, there is some work left in the next block ...
     paths = list() # lazyness
     # [ ( PATH , [ SUBREDDITS , ... ] ) , ... ]
     # Cannot be a dict, otherwise correct order would not be guaranteed
@@ -108,6 +116,37 @@ def main():
 
     for (path, subreddits) in lists:
         subreddits.extend(parse_file(path))
+
+    threadqueue = queue.Queue()
+
+    # Worker method
+    def download_subreddit():
+        while True:
+            try:
+                (subreddit, destination) = threadqueue.get(block=False)
+            except queue.Empty:
+                print("No more items to process. Thread done.")
+                return
+            print("start downlading from ", subreddit)
+            time.sleep(random.randrange(1,10))
+            print("done downloading from ", subreddit)
+            threadqueue.task_done()
+
+    for (path, subreddits) in lists:
+        print("Downloading subreddits in list \"{0}\" into folder {1}".
+              format(os.path.basename(path), destination))
+        for subreddit in subreddits:
+            # Feed the queue
+            threadqueue.put((subreddit, destination))
+        # Start processing threads
+        for i in range(MAX_THREADS):
+            thread = threading.Thread(target=download_subreddit)
+            print("Starting thread...")
+            thread.start()
+        threadqueue.join()
+        print("Downloads from subreddits in list \"{0}\" completed, can be"
+              "found in {1}".
+              format(os.path.basename(path), destination))
 
 
 
