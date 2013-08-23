@@ -35,6 +35,9 @@ def extract_imgur_album_urls(album_url):
         return []
 
     filedata = response.read()
+    encoding = response.headers.get_content_charset()
+    filedata = filedata.decode(encoding)
+
 
     match = re.compile(r'\"hash\":\"(.[^\"]*)\"')
 

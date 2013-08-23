@@ -15,7 +15,11 @@ def getitems(subreddit, previd=''):
         url = '%s?after=t3_%s' % (url, previd)
     try:
         req = Request(url, headers=hdr)
-        json = urlopen(req).read() ; data = JSONDecoder().decode(json)
+        json = urlopen(req)
+        # reencode json from byte to string
+        encoding = json.headers.get_content_charset()
+        json = json.readall().decode(encoding)
+        data = JSONDecoder().decode(json)
         items = [x['data'] for x in data['data']['children']]
     except HTTPError as ERROR:
         print('\tHTTP ERROR: Code %s for %s.' % (ERROR.code, url))
