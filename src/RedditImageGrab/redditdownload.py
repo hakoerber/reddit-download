@@ -27,7 +27,10 @@ def extract_imgur_album_urls(album_url):
     Returns:
         List of qualified imgur URLs
     """
-    response = urlopen(album_url)
+    try:
+        response = urlopen(album_url)
+    except HTTPError:
+        return []
     info = response.info()
 
     # Rudimentary check to ensure the URL actually specifies an HTML file
@@ -78,7 +81,11 @@ def download_from_url(url, dest_file):
     if pathexists(dest_file):
         raise FileExistsException('URL [%s] already downloaded.' % url)
 
-    response = urlopen(url)
+    try:
+        response = urlopen(url)
+    except HTTPError:
+        return
+
     info = response.info()
 
     # Work out file type either from the response or the url.
