@@ -20,6 +20,24 @@ import os
 import sys
 import optparse
 
+LIST_EXTENSION = ".list"
+
+def check_file(file_path):
+    return (file_path.endswith(LIST_EXTENSION)
+            and os.path.basename(file_path) != LIST_EXTENSION)
+
+def get_lists(directory, recursive):
+    if recursive:
+        paths = list()
+        for (root, _, files) in os.walk(directory):
+            for filename in files:
+                path = os.path.join(root, filename)
+                if check_file(path):
+                    paths.append(path)
+        return paths
+    else:
+        return [path for path in os.listdir(directory)
+                if check_file(path)]
 
 def main():
     usage = "Usage: %prog [options] FILE/DIRECTORY..."
@@ -53,6 +71,16 @@ def main():
     if len(args) < 1:
         parser.error("expected at least one argument")
 
+    lists = list()
+    for path in args:
+        if os.path.isdir(path):
+            lists.extend(get_lists(path, recursive=options.recursive))
+        elif os.path.isfile(path):
+            if check_file(path):
+                lists.append(path)
+        else:
+            print("Invalid path: {0} not found.".format(
+                path))
 
 if __name__ == '__main__':
     main()
