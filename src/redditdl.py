@@ -22,6 +22,7 @@ import optparse
 import queue
 import threading
 import random
+import time
 
 import RedditImageGrab.redditdownload
 
@@ -59,7 +60,7 @@ def get_lists(directory, recursive, list_extension):
                     paths.append(path)
         return paths
     else:
-        return [path for path in os.listdir(directory)
+        return [os.path.join(directory, path) for path in os.listdir(directory)
                 if check_file(path, list_extension)]
 
 def check_line(line):
@@ -73,7 +74,68 @@ def parse_file(path):
             subreddits.append(line)
     return subreddits
 
-def main():
+# Worker method
+def download_subreddit():
+    # well ...
+    global total_processed
+    global total_downloaded
+    global total_skipped
+    global total_errors
+    global score
+    global max_downloads
+    global no_sfw
+    global no_nsfw
+    global regex
+    global verbose
+    while True:
+        try:
+            (subreddit, destination) = threadqueue.get(block=False)
+        except queue.Empty:
+            print("No more items to process. Thread done.")
+            return
+        subreddit_destination = os.path.join(destination, subreddit)
+        if not os.path.isdir(subreddit_destination):
+            if os.path.exists(subreddit_destination):
+                print("Invalid destination: {0}. Skipping subreddit {1}".format(
+                    subreddit_destination, subreddit))
+                continue
+            print("creating ", subreddit_destination)
+            os.mkdir(subreddit_destination)
+
+        print("Starting download from /r/{0} to {1}".
+                format(subreddit, subreddit_destination))
+
+        #(total, downloaded, skipped, errors) = (10, 5, 3, 2)
+        #time.sleep(random.randrange(3,8))
+
+        # sfw and nsfw means (n)sfw ONLY ... ffs
+        # no_nsfw -> sfw true, nsfw ?
+        # no_sfw -> nsfw true, sfw ?
+        # both -> both true
+        # none -> both false
+        (total, downloaded, skipped, errors) = \
+            RedditImageGrab.redditdownload.download(
+                subreddit, subreddit_destination, last="", score=score,
+                num=max_downloads, update=False, sfw=no_nsfw,
+                nsfw=no_sfw, regex=regex, verbose=verbose, quiet=(not verbose))
+
+        # TODO race condition or something
+        with lock:
+            total_processed += total
+            total_downloaded += downloaded
+            total_skipped += skipped
+            total_errors += errors
+
+        print("Done downloading from /r/{0} to {1}".
+                format(subreddit, subreddit_destination))
+        print ("Downloaded: {0}, skipped/errors {1}/{2}, total processed: {3}".
+               format(downloaded, skipped, errors, total))
+        threadqueue.task_done()
+
+
+
+
+if __name__ == '__main__':
     usage = "Usage: %prog [options] FILE/DIRECTORY..."
     version = "%prog 0.1-dev"
     parser = optparse.OptionParser(usage=usage, version=version)
@@ -153,7 +215,8 @@ def main():
     flood_timeout = options.flood_timeout
     list_extension = options.list_extension
     shuffle = options.shuffle
-    recursive=options.recursive
+    recursive = options.recursive
+    verbose = options.verbose
 
     shuffle_lists = DEFAULT_SHUFFLE_LISTS
     shuffle_list_subreddits = DEFAULT_SHUFFLE_LIST_SUBREDDITS
@@ -178,17 +241,16 @@ def main():
     if len(args) < 1:
         parser.error("expected at least one argument")
 
-    if not os.path.exists(destination):
-        if not options.create_destination:
-            print("{0} does not exist and shall now be created.".
-                format(destination))
-            sys.exit(EXIT_INVALID_DESTINATION)
-        else:
-            os.mkdir(destination)
-
     if not os.path.isdir(destination):
-        print("{0} is not a valid directory.".format(destination))
-        sys.exit(EXIT_INVALID_DESTINATION)
+        if os.path.exists(destination):
+            print("Invalid destination: {0}".format(
+                destination))
+            sys.exit(EXIT_INVALID_DESTINATION)
+        if not options.create_destination:
+           print("{0} does not exist and shall now be created.".
+                format(destination))
+           sys.exit(EXIT_INVALID_DESTINATION)
+        os.mkdir(destination)
 
     # TODO Dude, there is some work left in the next block ...
     paths = list() # lazyness
@@ -197,13 +259,13 @@ def main():
     lists = list()
     for path in args:
         if os.path.isdir(path):
-            for path in get_lists(path, recursive=recursive,
-                                  list_extension=list_extension):
-                if path in paths:
-                    print("{0} already encountered, ignored.".format(path))
+            for list_path in get_lists(path, recursive=recursive,
+                                      list_extension=list_extension):
+                if list_path in paths:
+                    print("{0} already encountered, ignored.".format(list_path))
                 else:
-                    lists.append((path, list()))
-                    paths.append(path)
+                    lists.append((list_path, list()))
+                    paths.append(list_path)
         elif os.path.isfile(path):
             if check_file(path):
                 if path in paths:
@@ -212,8 +274,7 @@ def main():
                     lists.append((path, list()))
                     paths.append(path)
         else:
-            print("Invalid path: {0} not found.".format(
-                path))
+            print("Invalid path: {0} not found.".format(path))
 
     for (path, subreddits) in lists:
         subreddits.extend(parse_file(path))
@@ -236,6 +297,8 @@ def main():
     # if all subreddits should be shuffled, we have to repack "lists". we pack
     # all subreddits under one list
     if shuffle_all_subreddits:
+        print("function implementation faulty, DO NO USE")
+        raise NotImplementedError()
         all_subreddits_list = list()
         all_subreddits_list.append(("shuffled-subreddits",list()))
         for (_, subreddits) in lists:
@@ -244,47 +307,27 @@ def main():
 
 
     threadqueue = queue.Queue()
+    lock = threading.Lock()
+
     total_processed = 0
     total_downloaded = 0
     total_skipped = 0
     total_errors = 0
 
-    # Worker method
-    def download_subreddit():
-        while True:
-            try:
-                (subreddit, destination) = threadqueue.get(block=False)
-            except queue.Empty:
-                print("No more items to process. Thread done.")
-                return
-            print("Starting download from /r/{0} to {1}".
-                  format(subreddit, destination))
-
-            (total, downloaded, skipped, errors) = \
-                RedditImageGrab.redditdownload.download(
-                    subreddit, destination, last="", score=score,
-                    num=max_downloads, update=False, sfw=(not no_sfw),
-                    nsfw=(not no_nsfw), regex=regex, verbose=False, quiet=True)
-
-            # TODO race condition or something
-            total_proceessed += total
-            total_downloaded += downloaded
-            total_skipped += skipped
-            total_errors += errors
-
-            print("Done downloading from /r/{0} to {1}".
-                  format(subreddit, destination))
-            print ("Downloaded: {0}, skipped/errors {1}/{2}, ",
-                   "total processed: {3}".format(downloaded, skipped, errors,
-                                                 total))
-            threadqueue.task_done()
-
     for (path, subreddits) in lists:
+        list_destination = os.path.join(
+            destination, os.path.basename(path).rstrip(list_extension))
+        if not os.path.isdir(list_destination):
+            if os.path.exists(list_destination):
+                print("Invalid destination: {0}. Skipping list {1}".format(
+                    list_destination, path))
+                continue
+            os.mkdir(list_destination)
         print("Downloading subreddits in list \"{0}\" into folder {1}".
-              format(os.path.basename(path), destination))
+              format(os.path.basename(path), list_destination))
         for subreddit in subreddits:
             # Feed the queue
-            threadqueue.put((subreddit, destination))
+            threadqueue.put((subreddit, list_destination))
         # Start processing threads
         for i in range(min(len(subreddits), max_threads)):
             thread = threading.Thread(target=download_subreddit)
@@ -294,7 +337,7 @@ def main():
         threadqueue.join()
         print("Downloads from subreddits in list \"{0}\" completed, can be"
               "found in {1}".
-              format(os.path.basename(path), destination))
+              format(os.path.basename(path), list_destination))
 
     print("--------------------------------------")
     print("Finished downloading.")
@@ -302,9 +345,3 @@ def main():
     print("Total skipped/errors:   {0}/{1}".format(total_skipped, total_errors))
     print("Total processed:        {0}".format(total_processed))
     print("--------------------------------------")
-
-
-
-
-if __name__ == '__main__':
-    main()
