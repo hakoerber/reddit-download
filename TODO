@@ -1,3 +1,4 @@
-shuffle functionality
-threading options (e.g. max threads)
-reduce threads if not enough lines
+shuffle functionality for all subreddits
+limit requests
+maybe option to limit OVERALL downloads, not just per subreddit?
+better statistics

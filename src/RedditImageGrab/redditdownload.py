@@ -2,13 +2,13 @@
 
 import re
 import io
-from urllib.request import urlopen
-from urllib.error import HTTPError, URLError
-from http.client import InvalidURL
-from argparse import ArgumentParser
-from os.path import exists as pathexists, join as pathjoin, basename as pathbasename, splitext as pathsplitext
-from os import mkdir
-from .reddit import getitems
+import urllib.request
+import urllib.error
+import http.client
+import argparse
+import os.path
+
+import RedditImageGrab.reddit
 
 
 class WrongFileTypeException(Exception):
@@ -21,41 +21,31 @@ class FileExistsException(Exception):
 
 def extract_imgur_album_urls(album_url):
     """
-    Given an imgur album URL, attempt to extract the images within that
+    Given an imgur album url, attempt to extract the images within that
     album
 
     Returns:
-        List of qualified imgur URLs
+        List of qualified imgur urls
     """
-    response = urlopen(album_url)
+    response = urllib.request.urlopen(album_url)
     info = response.info()
-
-    # Rudimentary check to ensure the URL actually specifies an HTML file
-    if 'content-type' in info and not info['content-type'].startswith('text/html'):
+    # Rudimentary check to ensure the url actually specifies an HTML file
+    if 'content-type' in info and \
+            not info['content-type'].startswith('text/html'):
         return []
-
     filedata = response.read()
     encoding = response.headers.get_content_charset()
     filedata = filedata.decode(encoding)
-
-
     match = re.compile(r'\"hash\":\"(.[^\"]*)\"')
-
     items = []
-
     memfile = io.StringIO(filedata)
-
     for line in memfile.readlines():
         results = re.findall(match, line)
-        if not results:
-            continue
-
-        items += results
+        if results:
+            items.extend(results)
 
     memfile.close()
-
-    urls = ['http://i.imgur.com/%s.jpg' % (imghash) for imghash in items]
-
+    urls = ['http://i.imgur.com/{0}.jpg'.format(imghash) for imghash in items]
     return urls
 
 
@@ -67,19 +57,17 @@ def download_from_url(url, dest_file):
         WrongFileTypeException
 
             when content-type is not in the supported types or cannot
-            be derived from the URL
+            be derived from the url
 
         FileExceptionsException
 
-            If the filename (derived from the URL) already exists in
+            If the filename (derived from the url) already exists in
             the destination directory.
     """
     # Don't download files multiple times!
-    if pathexists(dest_file):
-        raise FileExistsException('URL [%s] already downloaded.' % url)
-
-    response = urlopen(url)
-
+    if os.path.exists(dest_file):
+        raise FileExistsException('url [{0}] already downloaded.'.format(url))
+    response = urllib.request.urlopen(url)
     info = response.info()
 
     # Work out file type either from the response or the url.
@@ -96,7 +84,8 @@ def download_from_url(url, dest_file):
 
     # Only try to download acceptable image types
     if not filetype in ['image/jpeg', 'image/png', 'image/gif']:
-        raise WrongFileTypeException('WRONG FILE TYPE: %s has type: %s!' % (url, filetype))
+        raise WrongFileTypeException(
+            'WRONG FILE TYPE: {0} has type: {1}!'.format(url, filetype))
 
     filedata = response.read()
     filehandle = open(dest_file, 'wb')
@@ -106,11 +95,11 @@ def download_from_url(url, dest_file):
 
 def process_imgur_url(url):
     """
-    Given an imgur URL, determine if it's a direct link to an image or an
+    Given an imgur url, determine if it's a direct link to an image or an
     album.  If the latter, attempt to determine all images within the album
 
     Returns:
-        list of imgur URLs
+        list of imgur urls
     """
     if 'imgur.com/a/' in url:
         return extract_imgur_album_urls(url)
@@ -120,7 +109,7 @@ def process_imgur_url(url):
         url = url.replace('.png', '.jpg')
     else:
         # Extract the file extension
-        ext = pathsplitext(pathbasename(url))[1]
+        ext = os.path.splitext(os.path.basename(url))[1]
         if not ext:
             # Append a default
             url += '.jpg'
@@ -130,7 +119,7 @@ def process_imgur_url(url):
 
 def extract_urls(url):
     """
-    Given an URL checks to see if its an imgur.com URL, handles imgur hosted
+    Given an url checks to see if its an imgur.com url, handles imgur hosted
     images if present as single image or image album.
 
     Returns:
@@ -145,159 +134,142 @@ def extract_urls(url):
 
     return urls
 
+def get_identifier(title):
+    return title.replace('/', '-').lstrip(".")
 
-# returns a tuple: (total_processed, downoaded, errors, skipped)
+
+# returns a tuple: (processed, downoaded, errors, skipped)
 def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
              verbose, quiet):
     if not quiet:
-        print('Downloading images from "%s" subreddit' % (subreddit))
+        print('Downloading images from /r/{0}'.format(subreddit))
 
-    TOTAL = DOWNLOADED = ERRORS = SKIPPED = 0
-    FINISHED = False
+    processed = downloaded = errors = skipped = 0
+    finished = False
 
     # Create the specified directory if it doesn't already exist.
-    if not pathexists(destination):
-        mkdir(destination)
+    if not os.path.exists(destination):
+        os.mkdir(destination)
 
     # If a regex has been specified, compile the rule (once)
-    RE_RULE = None
+    regex_compiled = None
     if regex:
-        RE_RULE = re.compile(regex)
-    LAST = last
+        regex_compiled = re.compile(regex)
+    last_item = last
 
-    while not FINISHED:
-        ITEMS = getitems(subreddit, LAST)
-        if not ITEMS:
+    while not finished:
+        items = RedditImageGrab.reddit.getitems(subreddit, last_item)
+        if not items:
             # No more items to process
             break
 
-        for ITEM in ITEMS:
-            TOTAL += 1
+        for item in items:
+            processed += 1
 
-            identifier = ITEM["title"].replace('/', '-').lstrip(".")
-            if ITEM['score'] < score:
+            identifier = get_identifier(item["title"])
+            if item['score'] < score:
                 if verbose:
-                    print('    SCORE: %s has score of %s which is lower than required score of %s.' % (identifier, ITEM['score'], ARGS.score))
-
-                SKIPPED += 1
+                    print("    SCORE: {0} has score of {0} which is lower than "
+                          "required score of %s.".format(
+                                identifier, item['score'], args.score))
+                skipped += 1
                 continue
-            elif sfw and ITEM['over_18']:
+            if sfw and item['over_18']:
                 if verbose:
-                    print('    NSFW: %s is marked as NSFW.' % (identifier))
-
-                SKIPPED += 1
+                    print('    NSFW: {0} is marked as NSFW.'.format(identifier))
+                skipped += 1
                 continue
-            elif nsfw and not ITEM['over_18']:
+            if nsfw and not item['over_18']:
                 if verbose:
-                    print('    Not NSFW, skipping %s' % (identifier))
-
-                SKIPPED += 1
+                    print('    Not NSFW, skipping {0}'.format(identifier))
+                skipped += 1
                 continue
-            elif regex and not re.match(RE_RULE, ITEM['title']):
+            if regex and not re.match(regex_compiled, item['title']):
                 if verbose:
                     print('    Regex match failed')
-
-                SKIPPED += 1
+                skipped += 1
                 continue
 
-            FILECOUNT = 0
-            URLS = []
+            filecount = 0
+            urls = []
             try:
-                URLS = extract_urls(ITEM['url'])
-            except HTTPError as ERROR:
+                urls = extract_urls(item['url'])
+            except (urllib.error.HTTPError, urllib.error.URLError,
+                    http.client.InvalidURL, TimeoutError,
+                    UnicodeEncodeError) as error:
                 if not quiet:
-                    print('    HTTP ERROR: Code %s for %s.' % (ERROR.code, URL))
-                ERRORS += 1
-            except URLError as ERROR:
-                if not quiet:
-                    print('    URL ERROR: %s!' % (URL))
-                ERRORS += 1
-            except InvalidURL as ERROR:
-                if not quiet:
-                    print('    Invalid URL: %s!' % (URL))
-                ERRORS += 1
-            except TimeoutError as ERROR:
-                if not quiet:
-                    print('    Connection timed out to %s!' % (URL))
-                ERRORS += 1
-            for URL in URLS:
+                    print("    Error {0} for {1}".format(repr(error), urls))
+                errors += 1
+            for url in urls:
                 try:
                     # Trim any http query off end of file extension.
-                    FILEEXT = pathsplitext(URL)[1]
-                    if '?' in FILEEXT:
-                        FILEEXT = FILEEXT[:FILEEXT.index('?')]
+                    file_extension = os.path.splitext(url)[1]
+                    if '?' in file_extension:
+                        file_extension = \
+                            file_extension[:file_extension.index('?')]
 
                     # Only append numbers if more than one file.
-                    FILENUM = ('_%d' % FILECOUNT if len(URLS) > 1 else '')
-                    FILENAME = '%s%s%s' % (identifier, FILENUM, FILEEXT)
-                    FILEPATH = pathjoin(destination, FILENAME)
+                    file_number = ('_{0}'.format(
+                        filecount if len(urls) > 1 else ''))
+                    file_name = '{0}{1}{2}'.format(identifier, file_number,
+                                                    file_extension)
+                    file_path = os.path.join(destination, file_name)
 
                     # Download the image
-                    download_from_url(URL, FILEPATH)
+                    download_from_url(url, file_path)
 
                     # Image downloaded successfully!
                     if not quiet:
-                        print('    Downloaded URL [%s] as [%s].' % (URL, FILENAME))
-                    DOWNLOADED += 1
-                    FILECOUNT += 1
+                        print('^    Downloaded url [{0}] as [{1}].'.format(
+                            url, file_name))
+                    downloaded += 1
+                    filecount += 1
 
-                    if num > 0 and DOWNLOADED >= num:
-                        FINISHED = True
+                    if num > 0 and downloaded >= num:
+                        finished = True
                         break
-                except WrongFileTypeException as ERROR:
+                except WrongFileTypeException as error:
                     if not quiet:
-                        print('    %s' % (ERROR))
-                    SKIPPED += 1
-                except FileExistsException as ERROR:
+                        print('    {0}'.format(error))
+                    skipped += 1
+                except FileExistsException as error:
                     if not quiet:
-                        print('    %s' % (ERROR))
-                    SKIPPED += 1
+                        print('    {0}'.format(error))
+                    skipped += 1
                     if update:
                         if not quiet:
                             print('    Update complete, exiting.')
-                        FINISHED = True
+                        finished = True
                         break
-                except HTTPError as ERROR:
+                except (urllib.error.HTTPError, urllib.error.URLError,
+                        http.client.InvalidURL, TimeoutError,
+                        UnicodeEncodeError) as error:
                     if not quiet:
-                        print('    HTTP ERROR: Code %s for %s.' % (ERROR.code, URL))
-                    ERRORS += 1
-                except URLError as ERROR:
-                    if not quiet:
-                        print('    URL ERROR: %s!' % (URL))
-                    ERRORS += 1
-                except InvalidURL as ERROR:
-                    if not quiet:
-                        print('    Invalid URL: %s!' % (URL))
-                    ERRORS += 1
-                except TimeoutError as ERROR:
-                    if not quiet:
-                        print('    Connection timed out to %s!' % (URL))
-                    ERRORS += 1
+                        print("    Error {0} for {1}".format(repr(error), urls))
+                    errors += 1
 
-            if FINISHED:
+            if finished:
                 break
-
-        LAST = ITEM['id']
+        last_item = item['id']
     if not quiet:
-        print('Downloaded %d files (Processed %d, Skipped %d, Exists %d)' % (DOWNLOADED, TOTAL, SKIPPED, ERRORS))
-    return (TOTAL, DOWNLOADED, SKIPPED, ERRORS)
+        print('Downloaded {0} files (Processed {0}, Skipped {0}, Exists {0})'.
+              format(downloaded, processed, skipped, errors))
+    return (processed, downloaded, skipped, errors)
 
 ### Only needed when called directly.
 if __name__ == "__main__":
-    PARSER = ArgumentParser(description='Downloads files with specified extension from the specified subreddit.')
-    PARSER.add_argument('reddit', metavar='<subreddit>', help='Subreddit name.')
-    PARSER.add_argument('dir', metavar='<dest_file>', help='Dir to put downloaded files in.')
-    PARSER.add_argument('-last', metavar='l', default='', required=False, help='ID of the last downloaded file.')
-    PARSER.add_argument('-score', metavar='s', default=0, type=int, required=False, help='Minimum score of images to download.')
-    PARSER.add_argument('-num', metavar='n', default=0, type=int, required=False, help='Number of images to download.')
-    PARSER.add_argument('-update', default=False, action='store_true', required=False, help='Run until you encounter a file already downloaded.')
-    PARSER.add_argument('-sfw', default=False, action='store_true', required=False, help='Download safe for work images only.')
-    PARSER.add_argument('-nsfw', default=False, action='store_true', required=False, help='Download NSFW images only.')
-    PARSER.add_argument('-regex', default=None, action='store', required=False, help='Use Python regex to filter based on title.')
-    PARSER.add_argument('-verbose', default=False, action='store_true', required=False, help='Enable verbose output.')
-    ARGS = PARSER.parse_args()
+    parser = argparse.ArgumentParser(description='Downloads files with specified extension from the specified subreddit.')
+    parser.add_argument('reddit', metavar='<subreddit>', help='Subreddit name.')
+    parser.add_argument('dir', metavar='<dest_file>', help='Dir to put downloaded files in.')
+    parser.add_argument('-last', metavar='l', default='', required=False, help='ID of the last downloaded file.')
+    parser.add_argument('-score', metavar='s', default=0, type=int, required=False, help='Minimum score of images to download.')
+    parser.add_argument('-num', metavar='n', default=0, type=int, required=False, help='Number of images to download.')
+    parser.add_argument('-update', default=False, action='store_true', required=False, help='Run until you encounter a file already downloaded.')
+    parser.add_argument('-sfw', default=False, action='store_true', required=False, help='Download safe for work images only.')
+    parser.add_argument('-nsfw', default=False, action='store_true', required=False, help='Download NSFW images only.')
+    parser.add_argument('-regex', default=None, action='store', required=False, help='Use Python regex to filter based on title.')
+    parser.add_argument('-verbose', default=False, action='store_true', required=False, help='Enable verbose output.')
+    args = parser.parse_args()
 
-    download(ARGS.reddit, ARGS.dir, ARGS.last, ARGS.score, ARGS.num,
-             ARGS.update, ARGS.sfw, ARGS.nsfw, ARGS.regex, ARGS.verbose, False)
-
-
+    download(args.reddit, args.dir, args.last, args.score, args.num,
+             args.update, args.sfw, args.nsfw, args.regex, args.verbose, False)

@@ -112,13 +112,18 @@ def download_subreddit():
         # no_sfw -> nsfw true, sfw ?
         # both -> both true
         # none -> both false
-        (total, downloaded, skipped, errors) = \
-            RedditImageGrab.redditdownload.download(
-                subreddit, subreddit_destination, last="", score=score,
-                num=max_downloads, update=False, sfw=no_nsfw,
-                nsfw=no_sfw, regex=regex, verbose=verbose, quiet=(not verbose))
+        try:
+            (total, downloaded, skipped, errors) = \
+                RedditImageGrab.redditdownload.download(
+                    subreddit, subreddit_destination, last="", score=score,
+                    num=max_downloads, update=False, sfw=no_nsfw,
+                    nsfw=no_sfw, regex=regex, verbose=verbose,
+                    quiet=(not verbose))
+        except Exception as e:
+            print("Encountered unexpected exception {0}. Aborting thread.".
+                  format(repr(e)))
+            sys.exit(1)
 
-        # TODO race condition or something
         with lock:
             total_processed += total
             total_downloaded += downloaded
@@ -338,6 +343,7 @@ if __name__ == '__main__':
         print("Downloads from subreddits in list \"{0}\" completed, can be"
               "found in {1}".
               format(os.path.basename(path), list_destination))
+
 
     print("--------------------------------------")
     print("Finished downloading.")
