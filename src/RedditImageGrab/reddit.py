@@ -2,9 +2,15 @@
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from json import JSONDecoder
+import threading
+import time
+import logging
 
+logger = logging.getLogger()
 
-def getitems(subreddit, previd=''):
+lock = threading.Lock()
+
+def getitems(subreddit, previd, timeout):
     """Return list of items from a subreddit."""
     url = 'http://www.reddit.com/r/%s.json' % subreddit
     # Get items after item with 'id' of previd.
@@ -13,16 +19,25 @@ def getitems(subreddit, previd=''):
 
     if previd:
         url = '%s?after=t3_%s' % (url, previd)
+
     try:
-        req = Request(url, headers=hdr)
-        json = urlopen(req)
+        json = None
+        # sends a request and locks for timeout milliseconds
+        with lock:
+            start = time.perf_counter()
+            req = Request(url, headers=hdr)
+            json = urlopen(req)
+            sleep_time = timeout / 1000 - (time.perf_counter() - start)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
         # reencode json from byte to string
         encoding = json.headers.get_content_charset()
         json = json.readall().decode(encoding)
         data = JSONDecoder().decode(json)
         items = [x['data'] for x in data['data']['children']]
     except HTTPError as ERROR:
-        print('\tHTTP ERROR: Code %s for %s.' % (ERROR.code, url))
+        logger.error('HTTP ERROR: Code %s for %s.', ERROR.code, url)
         items = []
     return items
 

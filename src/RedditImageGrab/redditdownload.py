@@ -7,9 +7,12 @@ import urllib.error
 import http.client
 import argparse
 import os.path
+import logging
+import sys
+
+logger = logging.getLogger()
 
 import RedditImageGrab.reddit
-
 
 class WrongFileTypeException(Exception):
     """Exception raised when incorrect content-type discovered"""
@@ -140,11 +143,12 @@ def get_identifier(title):
 
 # returns a tuple: (processed, downoaded, errors, skipped)
 def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
-             verbose, quiet):
-    if not quiet:
-        print('Downloading images from /r/{0}'.format(subreddit))
+             verbose, quiet, timeout):
 
-    processed = downloaded = errors = skipped = 0
+    processed = 0
+    downloaded = 0
+    errors = 0
+    skipped = 0
     finished = False
 
     # Create the specified directory if it doesn't already exist.
@@ -156,9 +160,12 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
     if regex:
         regex_compiled = re.compile(regex)
     last_item = last
+    if not last_item:
+        list_item = ""
 
     while not finished:
-        items = RedditImageGrab.reddit.getitems(subreddit, last_item)
+        items = RedditImageGrab.reddit.getitems(subreddit, previd=last_item,
+                                                timeout=timeout)
         if not items:
             # No more items to process
             break
@@ -166,27 +173,27 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
         for item in items:
             processed += 1
 
-            identifier = get_identifier(item["title"])
+            title = item["title"]
+            identifier = get_identifier(title)
             if item['score'] < score:
-                if verbose:
-                    print("    SCORE: {0} has score of {0} which is lower than "
-                          "required score of %s.".format(
-                                identifier, item['score'], args.score))
+                logger.verbose("SCORE: \"%s\" has score of %s which is lower "
+                               "than the required score of %s, will be "
+                               "skipped.", title, item['score'], args.score)
                 skipped += 1
                 continue
             if sfw and item['over_18']:
-                if verbose:
-                    print('    NSFW: {0} is marked as NSFW.'.format(identifier))
+                logger.verbose('NSFW: \"%s\" is marked as NSFW, will be '
+                               "skipped", title)
                 skipped += 1
                 continue
             if nsfw and not item['over_18']:
-                if verbose:
-                    print('    Not NSFW, skipping {0}'.format(identifier))
+                logger.verbose("NOT NSFW: \"%s\" is not marked as NSFW, will "
+                               "be skipped.", title)
                 skipped += 1
                 continue
             if regex and not re.match(regex_compiled, item['title']):
-                if verbose:
-                    print('    Regex match failed')
+                logger.verbose("REGEX: \"%s\" did not match regular expression "
+                               "%s, will be skipped.", title)
                 skipped += 1
                 continue
 
@@ -197,8 +204,7 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
             except (urllib.error.HTTPError, urllib.error.URLError,
                     http.client.InvalidURL, TimeoutError,
                     UnicodeEncodeError) as error:
-                if not quiet:
-                    print("    Error {0} for {1}".format(repr(error), urls))
+                logger.error("Error %s for %s", repr(error), urls)
                 errors += 1
             for url in urls:
                 try:
@@ -219,9 +225,8 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                     download_from_url(url, file_path)
 
                     # Image downloaded successfully!
-                    if not quiet:
-                        print('^    Downloaded url [{0}] as [{1}].'.format(
-                            url, file_name))
+                    logger.info('Downloaded url \"%s\" as \"%s\".', url,
+                                file_name)
                     downloaded += 1
                     filecount += 1
 
@@ -230,30 +235,28 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                         break
                 except WrongFileTypeException as error:
                     if not quiet:
-                        print('    {0}'.format(error))
+                        logger.info('{0}'.format(error))
                     skipped += 1
                 except FileExistsException as error:
                     if not quiet:
-                        print('    {0}'.format(error))
+                        logger.info('{0}'.format(error))
                     skipped += 1
                     if update:
-                        if not quiet:
-                            print('    Update complete, exiting.')
+                        logger.verbose('UPDATE: Update complete, done with '
+                                       "subreddit \"%s\"", subreddit)
                         finished = True
                         break
                 except (urllib.error.HTTPError, urllib.error.URLError,
                         http.client.InvalidURL, TimeoutError,
                         UnicodeEncodeError) as error:
-                    if not quiet:
-                        print("    Error {0} for {1}".format(repr(error), urls))
+                    logger.error("Error %s for %s", repr(error), urls)
                     errors += 1
 
             if finished:
                 break
         last_item = item['id']
-    if not quiet:
-        print('Downloaded {0} files (Processed {0}, Skipped {0}, Exists {0})'.
-              format(downloaded, processed, skipped, errors))
+        logger.info('DONE: Downloaded %d files (Processed %d, Skipped %d, '
+                    'Exists %d)',downloaded, processed, skipped, errors)
     return (processed, downloaded, skipped, errors)
 
 ### Only needed when called directly.
@@ -272,4 +275,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     download(args.reddit, args.dir, args.last, args.score, args.num,
-             args.update, args.sfw, args.nsfw, args.regex, args.verbose, False)
+             args.update, args.sfw, args.nsfw, args.regex, args.verbose, False,
+             1000)

@@ -3,12 +3,12 @@
 #
 # This file is part of reddit-download.
 #
-# autobackup is free software: you can redistribute it and/or modify
+# reddit-download is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# autobackup is distributed in the hope that it will be useful,
+# reddit-download is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
@@ -23,8 +23,15 @@ import queue
 import threading
 import random
 import time
+import logging
+import logging.handlers
 
 import RedditImageGrab.redditdownload
+
+NAME = "reddit-download"
+VERSION = "0.1-dev"
+
+LOGFILE = os.path.join("/var/log/", NAME, "%s.log" % NAME)
 
 DEFAULT_LIST_EXTENSION = ".list"
 DEFAULT_FLOOD_TIMEOUT = 1000
@@ -43,8 +50,36 @@ DEFAULT_SHUFFLE_ALL_SUBREDDITS = False
 
 EXIT_INVALID_DESTINATION = 1
 ERROR_INVALID_COMMAND_LINE = 2 # same in optparse
+ERROR_UNKNOWN = 100
 
 COMMENT_CHAR = "#"
+
+class LevelFilter(object):
+    def __init__(self, minlvl=logging.NOTSET, maxlvl=logging.NOTSET):
+        self.__setMinLevel(minlvl)
+        self.__setMaxLevel(maxlvl)
+
+    def filter(self, record):
+        if (self.getMinLevel() != logging.NOTSET and
+                record.levelno < self.getMinLevel()):
+            return False
+        if (self.getMaxLevel() != logging.NOTSET and
+                record.levelno > self.getMaxLevel()):
+            return False
+        return True
+
+    def getMinLevel(self):
+        return self.__minlvl
+
+    def getMaxLevel(self):
+        return self.__maxlvl
+
+    def __setMinLevel(self, minlvl):
+        self.__minlvl = minlvl
+
+    def __setMaxLevel(self, maxlvl):
+        self.__maxlvl = maxlvl
+
 
 def check_file(file_path, list_extension):
     return (file_path.endswith(list_extension)
@@ -87,42 +122,41 @@ def download_subreddit():
     global no_nsfw
     global regex
     global verbose
+    global flood_timeout
     while True:
         try:
             (subreddit, destination) = threadqueue.get(block=False)
         except queue.Empty:
-            print("No more items to process. Thread done.")
+            logger.info("No more items to process. Thread done.")
             return
         subreddit_destination = os.path.join(destination, subreddit)
         if not os.path.isdir(subreddit_destination):
             if os.path.exists(subreddit_destination):
-                print("Invalid destination: {0}. Skipping subreddit {1}".format(
-                    subreddit_destination, subreddit))
+                logger.error("Invalid destination: %s. Skipping subreddit %s",
+                             subreddit_destination, subreddit)
                 continue
             os.mkdir(subreddit_destination)
 
-        print("Starting download from /r/{0} to {1}".
-                format(subreddit, subreddit_destination))
+        logger.info("Starting download from /r/%s to %s", subreddit,
+              subreddit_destination)
 
         #(total, downloaded, skipped, errors) = (10, 5, 3, 2)
         #time.sleep(random.randrange(3,8))
 
         # sfw and nsfw means (n)sfw ONLY ... ffs
-        # no_nsfw -> sfw true, nsfw ?
-        # no_sfw -> nsfw true, sfw ?
-        # both -> both true
-        # none -> both false
         try:
             (total, downloaded, skipped, errors) = \
                 RedditImageGrab.redditdownload.download(
                     subreddit, subreddit_destination, last="", score=score,
                     num=max_downloads, update=False, sfw=no_nsfw,
                     nsfw=no_sfw, regex=regex, verbose=verbose,
-                    quiet=(not verbose))
+                    quiet=(not verbose), timeout=flood_timeout)
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception as e:
-            print("Encountered unexpected exception {0}. Aborting thread.".
-                  format(repr(e)))
-            sys.exit(1)
+            logger.critical("Encountered unexpected exception %s. Aborting.",
+                            repr(e), exc_info=True)
+            sys.exit(ERROR_UNKNOWN)
 
         with lock:
             total_processed += total
@@ -130,10 +164,10 @@ def download_subreddit():
             total_skipped += skipped
             total_errors += errors
 
-        print("Done downloading from /r/{0} to {1}".
-                format(subreddit, subreddit_destination))
-        print ("Downloaded: {0}, skipped/errors {1}/{2}, total processed: {3}".
-               format(downloaded, skipped, errors, total))
+        logger.error("Done downloading from /r/%d} to %d", subreddit,
+                     subreddit_destination)
+        print ("Downloaded: %d, skipped/errors %d/%d, total processed: %d",
+               downloaded, skipped, errors, total)
         threadqueue.task_done()
 
 
@@ -141,7 +175,7 @@ def download_subreddit():
 
 if __name__ == '__main__':
     usage = "Usage: %prog [options] FILE/DIRECTORY..."
-    version = "%prog 0.1-dev"
+    version = "%prog {0}".format(VERSION)
     parser = optparse.OptionParser(usage=usage, version=version)
     parser.add_option("-r", "--recursive", action="store_true",
                       dest="recursive", default=DEFAULT_RECURSIVE,
@@ -226,6 +260,7 @@ if __name__ == '__main__':
     shuffle_lists = DEFAULT_SHUFFLE_LISTS
     shuffle_list_subreddits = DEFAULT_SHUFFLE_LIST_SUBREDDITS
     shuffle_all_subreddits = DEFAULT_SHUFFLE_ALL_SUBREDDITS
+
     if shuffle:
         options = shuffle.split(',')
         if "lists" in options:
@@ -257,6 +292,55 @@ if __name__ == '__main__':
            sys.exit(EXIT_INVALID_DESTINATION)
         os.mkdir(destination)
 
+    # arguments and options should be sane, we can start logging now
+
+    class LEVELS(object):
+        def __init__(self):
+            debug = logging.DEBUG
+            info = logging.INFO
+            warning = logging.WARNING
+            error = logging.ERROR
+            critical = logging.CRITICAL
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    logging.VERBOSE = 15
+    logging.addLevelName(logging.VERBOSE, "VERBOSE")
+    logging.Logger.verbose = \
+        lambda obj, msg, *args, **kwargs: \
+            obj.log(logging.VERBOSE, msg, *args, **kwargs)
+
+    logger.verbose = \
+        lambda obj, msg, *args, **kwargs: \
+            obj.log(logging.VERBOSE, msg, *args, **kwargs)
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    logfile_handler = logging.handlers.RotatingFileHandler(LOGFILE,
+                                                           maxBytes=50000,
+                                                           backupCount=9)
+
+    stdout_handler.addFilter(LevelFilter(minlvl=logging.NOTSET,
+                                         maxlvl=logging.WARNING - 1))
+    stderr_handler.addFilter(LevelFilter(minlvl=logging.WARNING,
+                                         maxlvl=logging.CRITICAL))
+
+    stderr_handler.setLevel(logging.DEBUG)
+    stderr_handler.setLevel(logging.WARNING)
+
+    formatter = logging.Formatter(
+        fmt="[{asctime}] {levelname}: {message}",
+        style='{')
+
+    stdout_handler.setFormatter(formatter)
+    stderr_handler.setFormatter(formatter)
+    logfile_handler.setFormatter(formatter)
+
+    logger.addHandler(stdout_handler)
+    logger.addHandler(stderr_handler)
+    logger.addHandler(logfile_handler)
+
     # TODO Dude, there is some work left in the next block ...
     paths = list() # lazyness
     # [ ( PATH , [ SUBREDDITS , ... ] ) , ... ]
@@ -267,26 +351,27 @@ if __name__ == '__main__':
             for list_path in get_lists(path, recursive=recursive,
                                       list_extension=list_extension):
                 if list_path in paths:
-                    print("{0} already encountered, ignored.".format(list_path))
+                    logger.info("%s already encountered, ignored.", list_path)
                 else:
                     lists.append((list_path, list()))
                     paths.append(list_path)
         elif os.path.isfile(path):
             if check_file(path, list_extension):
                 if path in paths:
-                    print("{0} already encountered, ignored.".format(path))
+                    logger.info("%s already encountered, ignored.", path)
                 else:
                     lists.append((path, list()))
                     paths.append(path)
         else:
-            print("Invalid path: {0} not found.".format(path))
+            logger.error("Invalid path: %s not found.", path)
+
+    if len(lists) == 0:
+        logger.error("No lists found.")
+        sys.exit(0)
 
     for (path, subreddits) in lists:
         subreddits.extend(parse_file(path))
 
-    if len(lists) == 0:
-        print("No lists found.")
-        sys.exit(0)
 
     # shuffle subreddits in every list if necessary. if all subreddits all
     # shuffled anyway, we can skip this
@@ -302,14 +387,13 @@ if __name__ == '__main__':
     # if all subreddits should be shuffled, we have to repack "lists". we pack
     # all subreddits under one list
     if shuffle_all_subreddits:
-        print("function implementation faulty, DO NO USE")
+        logger.critical("function implementation faulty, DO NO USE")
         raise NotImplementedError()
         all_subreddits_list = list()
         all_subreddits_list.append(("shuffled-subreddits",list()))
         for (_, subreddits) in lists:
             all_subreddits_list[0][1].extend(subreddits)
         lists = all_subreddits_list
-
 
     threadqueue = queue.Queue()
     lock = threading.Lock()
@@ -324,12 +408,12 @@ if __name__ == '__main__':
             destination, os.path.basename(path)[:-len(list_extension)])
         if not os.path.isdir(list_destination):
             if os.path.exists(list_destination):
-                print("Invalid destination: {0}. Skipping list {1}".format(
-                    list_destination, path))
+                logger.error("Invalid destination: %s. Skipping list %s",
+                             list_destination, path)
                 continue
             os.mkdir(list_destination)
-        print("Downloading subreddits in list \"{0}\" into folder {1}".
-              format(os.path.basename(path), list_destination))
+        logger.info("Downloading subreddits in list \"%s\" into folder \"%s\"",
+              os.path.basename(path), list_destination)
         for subreddit in subreddits:
             # Feed the queue
             threadqueue.put((subreddit, list_destination))
@@ -340,14 +424,15 @@ if __name__ == '__main__':
             # prevent all threads from starting simultaneously
             time.sleep(flood_timeout/1000)
         threadqueue.join()
-        print("Downloads from subreddits in list \"{0}\" completed, can be"
-              "found in {1}".
-              format(os.path.basename(path), list_destination))
+        logger.info("Downloads from subreddits in list \"%s\" completed, can "
+            "be found in %s", os.path.basename(path), list_destination)
 
 
-    print("--------------------------------------")
-    print("Finished downloading.")
-    print("Total downloaded files: {0}".format(total_downloaded))
-    print("Total skipped/errors:   {0}/{1}".format(total_skipped, total_errors))
-    print("Total processed:        {0}".format(total_processed))
-    print("--------------------------------------")
+    logger.info("--------------------------------------")
+    logger.info("Finished downloading.")
+    logger.info("Total downloaded files: %s", total_downloaded)
+    logger.info("Total skipped/errors:   %s/%s", total_skipped, total_errors)
+    logger.info("Total processed:        %s", total_processed)
+    logger.info("--------------------------------------")
+
+    logging.shutdown()
