@@ -9,10 +9,12 @@ import argparse
 import os.path
 import logging
 import sys
-
-logger = logging.getLogger()
+import threading
+import time
 
 import RedditImageGrab.reddit
+
+logger = logging.getLogger()
 
 class WrongFileTypeException(Exception):
     """Exception raised when incorrect content-type discovered"""
@@ -20,6 +22,29 @@ class WrongFileTypeException(Exception):
 
 class FileExistsException(Exception):
     """Exception raised when file exists in specified directory"""
+
+urlopen_timeout_lock = threading.Lock()
+urlopen_imgur_album_lock = threading.Lock()
+
+def urlopen_timeout_wrapper(url, timeout=1000, lock=urlopen_timeout_lock):
+    with urlopen_timeout_lock:
+        #logger.critical("Aquired lock")
+        start = time.perf_counter()
+
+        logger.debug("Opening URL \"%s\"", url)
+        response = urllib.request.urlopen(url)
+        response_info = response.info()
+        response_data = response.read()
+        response_encoding = response.headers.get_content_charset()
+
+        sleep_time = timeout / 1000 - (time.perf_counter() - start)
+        if sleep_time > 0:
+            #logger.critical("sleeptime %s", sleep_time)
+            #logger.critical("doing a nap")
+            time.sleep(sleep_time)
+        #logger.critical("thanks for the lock, done with it")
+
+    return (response_info, response_data, response_encoding)
 
 
 def extract_imgur_album_urls(album_url):
@@ -30,18 +55,16 @@ def extract_imgur_album_urls(album_url):
     Returns:
         List of qualified imgur urls
     """
-    response = urllib.request.urlopen(album_url)
-    info = response.info()
+    (response_info, response_data, response_encoding) = \
+        urlopen_timeout_wrapper(album_url, lock=urlopen_imgur_album_lock)
     # Rudimentary check to ensure the url actually specifies an HTML file
-    if 'content-type' in info and \
-            not info['content-type'].startswith('text/html'):
+    if 'content-type' in response_info and \
+            not response_info['content-type'].startswith('text/html'):
         return []
-    filedata = response.read()
-    encoding = response.headers.get_content_charset()
-    filedata = filedata.decode(encoding)
+    response_data = response_data.decode(response_encoding)
     match = re.compile(r'\"hash\":\"(.[^\"]*)\"')
     items = []
-    memfile = io.StringIO(filedata)
+    memfile = io.StringIO(response_data)
     for line in memfile.readlines():
         results = re.findall(match, line)
         if results:
@@ -69,13 +92,11 @@ def download_from_url(url, dest_file):
     """
     # Don't download files multiple times!
     if os.path.exists(dest_file):
-        raise FileExistsException('url [{0}] already downloaded.'.format(url))
-    response = urllib.request.urlopen(url)
-    info = response.info()
-
+        raise FileExistsException('URL \"%s\" already downloaded.' % url)
+    (response_info, response_data, _) = urlopen_timeout_wrapper(url)
     # Work out file type either from the response or the url.
-    if 'content-type' in list(info.keys()):
-        filetype = info['content-type']
+    if 'content-type' in list(response_info.keys()):
+        filetype = response_info['content-type']
     elif url.endswith('.jpg') or url.endswith('.jpeg'):
         filetype = 'image/jpeg'
     elif url.endswith('.png'):
@@ -83,17 +104,15 @@ def download_from_url(url, dest_file):
     elif url.endswith('.gif'):
         filetype = 'image/gif'
     else:
-        filetype = 'unknown'
+        filetype = response_info["content-type"]
 
     # Only try to download acceptable image types
     if not filetype in ['image/jpeg', 'image/png', 'image/gif']:
         raise WrongFileTypeException(
-            'WRONG FILE TYPE: {0} has type: {1}!'.format(url, filetype))
+            'WRONG FILE TYPE: URL \"%s\" has type: \"%s\"' % (url, filetype))
 
-    filedata = response.read()
-    filehandle = open(dest_file, 'wb')
-    filehandle.write(filedata)
-    filehandle.close()
+    with open(dest_file, 'wb') as filehandle:
+        filehandle.write(response_data)
 
 
 def process_imgur_url(url):
@@ -153,6 +172,8 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
 
     # Create the specified directory if it doesn't already exist.
     if not os.path.exists(destination):
+        logger.debug("Directory \"%s\" does not exist, will be created.",
+                     destination)
         os.mkdir(destination)
 
     # If a regex has been specified, compile the rule (once)
@@ -202,10 +223,18 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
             try:
                 urls = extract_urls(item['url'])
             except (urllib.error.HTTPError, urllib.error.URLError,
-                    http.client.InvalidURL, TimeoutError,
-                    UnicodeEncodeError) as error:
-                logger.error("Error %s for %s", repr(error), urls)
+                    http.client.HTTPException, TimeoutError,
+                    UnicodeEncodeError, ConnectionError) as error:
+                if urls:
+                    if len(urls) == 1:
+                        urls = urls[0]
+                    logger.verbose("Error %s for %s", repr(error), urls)
                 errors += 1
+                continue
+
+            update_mode = False
+            update = True
+
             for url in urls:
                 try:
                     # Trim any http query off end of file extension.
@@ -222,11 +251,35 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                     file_path = os.path.join(destination, file_name)
 
                     # Download the image
-                    download_from_url(url, file_path)
-
+                    try:
+                        download_from_url(url, file_path)
+                    except OSError as error:
+                        if error.errno == 36: # file name too long
+                            # shorten basename to [SHORTENED] and 10 characters
+                            # hope that works
+                            logger.info("File path %s had to be shortened.",
+                                        file_path)
+                            file_path = os.path.join(os.path.dirname(file_path),
+                                "[SHORTENED] {0}".format(os.path.basename(
+                                file_path)[:10]))
+                            download_from_url(url, file_path)
+                        else:
+                            raise
                     # Image downloaded successfully!
-                    logger.info('Downloaded url \"%s\" as \"%s\".', url,
-                                file_name)
+
+                    if update_mode:
+                        print(" -------------------------------------")
+                        print(" -------------------------------------")
+                        print(" -------------------------------------")
+                        print("--update failed, encountered new link.")
+                        print(" -------------------------------------")
+                        print(" -------------------------------------")
+                        print(" -------------------------------------")
+                        sys.exit(133)
+
+
+                    logger.verbose('Downloaded URL \"%s\" to \"%s\".', url,
+                                   file_path)
                     downloaded += 1
                     filecount += 1
 
@@ -235,28 +288,32 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                         break
                 except WrongFileTypeException as error:
                     if not quiet:
-                        logger.info('{0}'.format(error))
+                        logger.verbose('%s', error)
                     skipped += 1
                 except FileExistsException as error:
                     if not quiet:
-                        logger.info('{0}'.format(error))
+                        logger.verbose('%s', error)
                     skipped += 1
                     if update:
+
+                        update_mode = True
                         logger.verbose('UPDATE: Update complete, done with '
                                        "subreddit \"%s\"", subreddit)
-                        finished = True
-                        break
+                        #finished = True
+                        #break
                 except (urllib.error.HTTPError, urllib.error.URLError,
-                        http.client.InvalidURL, TimeoutError,
-                        UnicodeEncodeError) as error:
-                    logger.error("Error %s for %s", repr(error), urls)
+                        http.client.HTTPException, TimeoutError,
+                        UnicodeEncodeError, ConnectionError) as error:
+                    if urls:
+                        if len(urls) == 1:
+                            urls = urls[0]
+                        logger.verbose("Error %s for %s", repr(error), urls)
                     errors += 1
+                    continue
 
             if finished:
                 break
         last_item = item['id']
-        logger.info('DONE: Downloaded %d files (Processed %d, Skipped %d, '
-                    'Exists %d)',downloaded, processed, skipped, errors)
     return (processed, downloaded, skipped, errors)
 
 ### Only needed when called directly.

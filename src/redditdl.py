@@ -31,11 +31,35 @@ import RedditImageGrab.redditdownload
 NAME = "reddit-download"
 VERSION = "0.1-dev"
 
-LOGFILE = os.path.join("/var/log/", NAME, "%s.log" % NAME)
+PRIVILEGED_FOLDER = "/var/log"
+UNPRIVILEGED_FOLDER = "/var/tmp"
+
+# We can use /var/log/... if we are root or if it already exists with the
+# correct permissions, otherwise we have to fall back to /var/tmp/...
+logfile = ""
+privileged_path = os.path.join(PRIVILEGED_FOLDER, NAME)
+unprivileged_path = os.path.join(UNPRIVILEGED_FOLDER, NAME)
+try:
+    if os.getuid() == 0 or os.access(privileged_path, os.W_OK):
+        logfile = privileged_path
+    else: #maybe we are allowed to create the log folder? (unlikely, i admit it)
+        if os.access(PRIVILEGED_FOLDER, os.W_OK):
+            os.mkdir(privileged_path)
+            logfile = privileged_path
+        else:
+            if not os.path.isdir(unprivileged_path):
+                os.mkdir(unprivileged_path)
+            if not os.access(unprivileged_path, os.W_OK):
+                raise OSError("No access to %s" % unprivileged_path)
+            logfile = unprivileged_path
+    logfile = os.path.join(logfile, "run.log")
+except OSError as error:
+    print("Could not get a valid path for the log file. No logging to a file "
+          "will be done. Error: %s" % repr(error))
 
 DEFAULT_LIST_EXTENSION = ".list"
-DEFAULT_FLOOD_TIMEOUT = 1000
-DEFAULT_MAX_THREADS = 10
+DEFAULT_FLOOD_TIMEOUT = 5000
+DEFAULT_MAX_THREADS = 3
 DEFAULT_CREATE_DESTINATION = False
 DEFAULT_RECURSIVE = False
 DEFAULT_DESTINATION = os.getcwd()
@@ -164,10 +188,9 @@ def download_subreddit():
             total_skipped += skipped
             total_errors += errors
 
-        logger.error("Done downloading from /r/%d} to %d", subreddit,
-                     subreddit_destination)
-        print ("Downloaded: %d, skipped/errors %d/%d, total processed: %d",
-               downloaded, skipped, errors, total)
+        logger.info("Done downloading from /r/%s to \"%s\" Downloaded: %d, "
+                    "skipped/errors %d/%d, total processed: %d", subreddit,
+                     subreddit_destination, downloaded, skipped, errors, total)
         threadqueue.task_done()
 
 
@@ -195,7 +218,7 @@ if __name__ == '__main__':
     parser.add_option("-e", "--extension", action="store", type="string",
                       dest="list_extension", default=DEFAULT_LIST_EXTENSION,
                       metavar="EXT", help="change the extension of subreddit "
-                      "list files [default: {0}]".
+                      "list files [default: \"{0}\"]".
                       format(DEFAULT_LIST_EXTENSION))
     parser.add_option("--shuffle", action="store", dest="shuffle",
                       type="string", default=DEFAULT_SHUFFLE, metavar="OPTIONS",
@@ -231,7 +254,7 @@ if __name__ == '__main__':
     parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, "output control")
-    group.add_option("-q", "--quiet", action="store_false", dest="verbose",
+    group.add_option("-q", "--quiet", action="store_true", dest="quiet",
                       help="be more quiet")
     group.add_option("-v", "--verbose", action="store_true", dest="verbose",
                       help="be more verbose")
@@ -262,16 +285,16 @@ if __name__ == '__main__':
     shuffle_all_subreddits = DEFAULT_SHUFFLE_ALL_SUBREDDITS
 
     if shuffle:
-        options = shuffle.split(',')
-        if "lists" in options:
+        shuffle_options = shuffle.split(',')
+        if "lists" in shuffle_options:
             shuffle_lists = True
-        if "list-subreddits" in options:
+        if "list-subreddits" in shuffle_options:
             shuffle_list_subreddits = True
-        if "all-subreddits" in options:
+        if "all-subreddits" in shuffle_options:
             shuffle_all_subreddits = True
         # well ... it works?
         if [shuffle_lists, shuffle_list_subreddits, shuffle_all_subreddits].\
-                count(True) != len(options):
+                count(True) != len(shuffle_options):
             print("--shuffle: invalid options: {0}".format(shuffle))
             sys.exit(ERROR_INVALID_COMMAND_LINE)
 
@@ -293,16 +316,8 @@ if __name__ == '__main__':
         os.mkdir(destination)
 
     # arguments and options should be sane, we can start logging now
-
-    class LEVELS(object):
-        def __init__(self):
-            debug = logging.DEBUG
-            info = logging.INFO
-            warning = logging.WARNING
-            error = logging.ERROR
-            critical = logging.CRITICAL
-
     logger = logging.getLogger()
+
     logger.setLevel(logging.DEBUG)
 
     logging.VERBOSE = 15
@@ -311,26 +326,42 @@ if __name__ == '__main__':
         lambda obj, msg, *args, **kwargs: \
             obj.log(logging.VERBOSE, msg, *args, **kwargs)
 
-    logger.verbose = \
-        lambda obj, msg, *args, **kwargs: \
-            obj.log(logging.VERBOSE, msg, *args, **kwargs)
+    #logger.verbose = \
+    #    lambda msg, *args, **kwargs: \
+    #        logger.log(logging.VERBOSE, msg, *args, **kwargs)
+
+    need_rollover = False
+    if os.path.isfile(logfile):
+        need_rollover = True
 
     stdout_handler = logging.StreamHandler(sys.stdout)
     stderr_handler = logging.StreamHandler(sys.stderr)
-    logfile_handler = logging.handlers.RotatingFileHandler(LOGFILE,
-                                                           maxBytes=50000,
+    logfile_handler = logging.NullHandler()
+    logfile_handler = logging.handlers.RotatingFileHandler(logfile,
                                                            backupCount=9)
+
+    if need_rollover:
+        logfile_handler.doRollover()
 
     stdout_handler.addFilter(LevelFilter(minlvl=logging.NOTSET,
                                          maxlvl=logging.WARNING - 1))
     stderr_handler.addFilter(LevelFilter(minlvl=logging.WARNING,
                                          maxlvl=logging.CRITICAL))
 
-    stderr_handler.setLevel(logging.DEBUG)
-    stderr_handler.setLevel(logging.WARNING)
+    console_logging_level = logging.INFO
+    if options.debug:
+        console_logging_level = logging.DEBUG
+    elif options.verbose:
+        console_logging_level = logging.VERBOSE
+    elif options.quiet:
+        console_logging_level = logging.WARNING
+
+    stdout_handler.setLevel(console_logging_level)
+    stderr_handler.setLevel(console_logging_level)
+    logfile_handler.setLevel(logging.DEBUG)
 
     formatter = logging.Formatter(
-        fmt="[{asctime}] {levelname}: {message}",
+        fmt="[{asctime}] [{levelname}] [{threadName}] {message}",
         style='{')
 
     stdout_handler.setFormatter(formatter)
@@ -340,6 +371,11 @@ if __name__ == '__main__':
     logger.addHandler(stdout_handler)
     logger.addHandler(stderr_handler)
     logger.addHandler(logfile_handler)
+
+    logger.debug("Logging setup completed")
+    logger.debug("Command line: \"%s\"", " ".join(sys.argv))
+    logger.debug("Options extracted: %s", options)
+    logger.debug("Arguments extracted: %s", args)
 
     # TODO Dude, there is some work left in the next block ...
     paths = list() # lazyness
@@ -372,16 +408,19 @@ if __name__ == '__main__':
     for (path, subreddits) in lists:
         subreddits.extend(parse_file(path))
 
+    logger.debug("Subreddit lists: %s", lists)
 
     # shuffle subreddits in every list if necessary. if all subreddits all
     # shuffled anyway, we can skip this
     if shuffle_list_subreddits and not shuffle_all_subreddits:
+        logger.debug("Shuffling subreddits in every list.")
         for (_, subreddits) in lists:
             random.shuffle(subreddits)
 
     # shuffle lists if necessary. again, not if all subreddits are shuffled
     # anyway
     if shuffle_lists and not shuffle_all_subreddits:
+        logger.debug("Shuffling lists.")
         random.shuffle(lists)
 
     # if all subreddits should be shuffled, we have to repack "lists". we pack
@@ -404,13 +443,20 @@ if __name__ == '__main__':
     total_errors = 0
 
     for (path, subreddits) in lists:
+        logger.debug("Working on list \"%s\" with subreddits %s.", path,
+                     subreddits)
         list_destination = os.path.join(
             destination, os.path.basename(path)[:-len(list_extension)])
+        logger.debug("Desination set to \"%s\"", list_destination)
         if not os.path.isdir(list_destination):
+            logger.debug("\"%s\" is not a directory.", list_destination)
             if os.path.exists(list_destination):
+                logger.debug("\"%s\" is a valid path.", list_destination)
                 logger.error("Invalid destination: %s. Skipping list %s",
                              list_destination, path)
                 continue
+            logger.debug("Creating destination directory \"%s\".",
+                         list_destination)
             os.mkdir(list_destination)
         logger.info("Downloading subreddits in list \"%s\" into folder \"%s\"",
               os.path.basename(path), list_destination)
@@ -421,9 +467,12 @@ if __name__ == '__main__':
         for i in range(min(len(subreddits), max_threads)):
             thread = threading.Thread(target=download_subreddit)
             thread.start()
+            logger.debug("Started thread %s", thread.name)
             # prevent all threads from starting simultaneously
             time.sleep(flood_timeout/1000)
+        logger.debug("Waiting for threads to finish ...")
         threadqueue.join()
+        logger.debug("All threads finished.")
         logger.info("Downloads from subreddits in list \"%s\" completed, can "
             "be found in %s", os.path.basename(path), list_destination)
 
@@ -435,4 +484,5 @@ if __name__ == '__main__':
     logger.info("Total processed:        %s", total_processed)
     logger.info("--------------------------------------")
 
+    logger.debug("Shutting down logging system. Bye.")
     logging.shutdown()

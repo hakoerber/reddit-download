@@ -37,7 +37,7 @@ def getitems(subreddit, previd, timeout):
         data = JSONDecoder().decode(json)
         items = [x['data'] for x in data['data']['children']]
     except HTTPError as ERROR:
-        logger.error('HTTP ERROR: Code %s for %s.', ERROR.code, url)
+        logger.verbose('HTTP ERROR: Code %s for %s.', ERROR.code, url)
         items = []
     return items
 
