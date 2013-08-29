@@ -58,7 +58,11 @@ except OSError as error:
           "will be done. Error: %s" % repr(error))
 
 DEFAULT_LIST_EXTENSION = ".list"
-DEFAULT_FLOOD_TIMEOUT = 5000
+# Look here: https://github.com/reddit/reddit/wiki/API
+# "Make no more than thirty requests per minute.
+# This allows some burstiness to your requests, but keep it sane. On average, we
+# should see no more than one request every two seconds from you."
+DEFAULT_FLOOD_TIMEOUT = 2000
 DEFAULT_MAX_THREADS = 3
 DEFAULT_CREATE_DESTINATION = False
 DEFAULT_RECURSIVE = False
@@ -71,6 +75,7 @@ DEFAULT_SHUFFLE = None
 DEFAULT_SHUFFLE_LISTS = False
 DEFAULT_SHUFFLE_LIST_SUBREDDITS = False
 DEFAULT_SHUFFLE_ALL_SUBREDDITS = False
+DEFAULT_LOGGING_ENABLED = True
 
 EXIT_INVALID_DESTINATION = 1
 ERROR_INVALID_COMMAND_LINE = 2 # same in optparse
@@ -224,6 +229,14 @@ if __name__ == '__main__':
                       type="string", default=DEFAULT_SHUFFLE, metavar="OPTIONS",
                       help="changes the shuffling behaviour.Valid OPTIONS "
                       "include: lists, list-subreddits, all-subreddits")
+    parser.add_option("--no-log", action="store_false", dest="logging_enabled",
+                      default=DEFAULT_LOGGING_ENABLED, help="disable logging, "
+                      "no log file will be used. [NOT IMPLEMENTED]")
+    parser.add_option("-l", "--logfile", action="store",
+                      dest="commandline_logfile", default=logfile,
+                      type="string", metavar="FILE", help="redirect logging "
+                      "into FILE instead of the default location [NOT "
+                      "IMPLEMENTED]")
 
 
     group = optparse.OptionGroup(parser, "filter options")

@@ -1,7 +1,7 @@
 shuffle functionality for all subreddits
 maybe option to limit OVERALL downloads, not just per subreddit?
 better statistics
-need more info about unexpected exceptions
 check for race conditions in RedditImageGrab (hint: there are thousands)
-shorten path if too long
 check if --update works
+windows compatibility
+maybe use multiprocessing instead of mutlithreading?

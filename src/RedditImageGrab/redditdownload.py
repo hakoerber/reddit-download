@@ -169,6 +169,8 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
     errors = 0
     skipped = 0
     finished = False
+    update_mode = False
+
 
     # Create the specified directory if it doesn't already exist.
     if not os.path.exists(destination):
@@ -232,8 +234,7 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                 errors += 1
                 continue
 
-            update_mode = False
-            update = True
+            update = False
 
             for url in urls:
                 try:
@@ -268,14 +269,15 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                     # Image downloaded successfully!
 
                     if update_mode:
-                        print(" -------------------------------------")
-                        print(" -------------------------------------")
-                        print(" -------------------------------------")
-                        print("--update failed, encountered new link.")
-                        print(" -------------------------------------")
-                        print(" -------------------------------------")
-                        print(" -------------------------------------")
-                        sys.exit(133)
+                        logger.critical(" ------------------------------------")
+                        logger.critical(" ------------------------------------")
+                        logger.critical(" ------------------------------------")
+                        logger.critical("--update failed, encountered new link")
+                        logger.critical(" ------------------------------------")
+                        logger.critical(" ------------------------------------")
+                        logger.critical(" ------------------------------------")
+                        sys.exit(13)
+                        sys.exit(37)
 
 
                     logger.verbose('Downloaded URL \"%s\" to \"%s\".', url,
@@ -295,12 +297,13 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
                         logger.verbose('%s', error)
                     skipped += 1
                     if update:
-
-                        update_mode = True
-                        logger.verbose('UPDATE: Update complete, done with '
-                                       "subreddit \"%s\"", subreddit)
-                        #finished = True
-                        #break
+                        if not update_mode:
+                            update_mode = True
+                            logger.verbose('UPDATE: Update complete, done with '
+                                        "subreddit \"%s\"", subreddit)
+                            #finished = True
+                            #break
+                            continue
                 except (urllib.error.HTTPError, urllib.error.URLError,
                         http.client.HTTPException, TimeoutError,
                         UnicodeEncodeError, ConnectionError) as error:

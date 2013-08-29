@@ -7,12 +7,15 @@ import time
 import logging
 
 logger = logging.getLogger()
+LIMIT = 100
+SORTING = "hot"
 
 lock = threading.Lock()
 
 def getitems(subreddit, previd, timeout):
     """Return list of items from a subreddit."""
-    url = 'http://www.reddit.com/r/%s.json' % subreddit
+    url = 'http://www.reddit.com/r/%s.json?limit=%d?sorting=%s' % \
+        (subreddit, LIMIT, SORTING)
     # Get items after item with 'id' of previd.
 
     hdr = { 'User-Agent' : 'RedditImageGrab script.' }
