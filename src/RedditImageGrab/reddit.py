@@ -39,10 +39,14 @@ def getitems(subreddit, previd, timeout):
         json = json.readall().decode(encoding)
         data = JSONDecoder().decode(json)
         items = [x['data'] for x in data['data']['children']]
+        last = data['data']['after']
+        print(last)
     except HTTPError as ERROR:
-        logger.verbose('HTTP ERROR: Code %s for %s.', ERROR.code, url)
+        logger.critical('HTTP ERROR: Code %s for %s.', ERROR.code, url)
         items = []
-    return items
+        last = previd
+    print(last)
+    return (items, last)
 
 if __name__ == "__main__":
 

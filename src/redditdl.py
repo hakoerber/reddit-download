@@ -133,10 +133,11 @@ def check_line(line):
 
 def parse_file(path):
     subreddits = list()
-    for line in open(path):
-        line = line.strip()
-        if check_line(line):
-            subreddits.append(line)
+    with open(path) as fd:
+        for line in fd:
+            line = line.strip()
+            if check_line(line):
+                subreddits.append(line)
     return subreddits
 
 # Worker method

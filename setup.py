@@ -19,7 +19,7 @@ setup(
       packages = ['reddit-download', 'reddit-download.RedditImageGrab'],
       scripts = [],
       data_files = [],
-      requires = [],
+      requires = ['praw'],
 
       classifiers = [
           'Development Status ::3 - Alpha',
