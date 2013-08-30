@@ -20,9 +20,10 @@ import os
 import sys
 import optparse
 import queue
-import threading
+import multiprocessing
 import random
 import time
+import ctypes
 import logging
 import logging.handlers
 
@@ -63,7 +64,7 @@ DEFAULT_LIST_EXTENSION = ".list"
 # This allows some burstiness to your requests, but keep it sane. On average, we
 # should see no more than one request every two seconds from you."
 DEFAULT_FLOOD_TIMEOUT = 2000
-DEFAULT_MAX_THREADS = 3
+DEFAULT_MAX_PROCESSES = 10
 DEFAULT_CREATE_DESTINATION = False
 DEFAULT_RECURSIVE = False
 DEFAULT_DESTINATION = os.getcwd()
@@ -139,24 +140,13 @@ def parse_file(path):
     return subreddits
 
 # Worker method
-def download_subreddit():
-    # well ...
-    global total_processed
-    global total_downloaded
-    global total_skipped
-    global total_errors
-    global score
-    global max_downloads
-    global no_sfw
-    global no_nsfw
-    global regex
-    global verbose
-    global flood_timeout
+def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
+                       regex, verbose, flood_timeout):
     while True:
         try:
-            (subreddit, destination) = threadqueue.get(block=False)
+            (subreddit, destination) = processqueue.get(block=False)
         except queue.Empty:
-            logger.info("No more items to process. Thread done.")
+            logger.info("No more items to process. Process done.")
             return
         subreddit_destination = os.path.join(destination, subreddit)
         if not os.path.isdir(subreddit_destination):
@@ -187,16 +177,15 @@ def download_subreddit():
                             repr(e), exc_info=True)
             sys.exit(ERROR_UNKNOWN)
 
-        with lock:
-            total_processed += total
-            total_downloaded += downloaded
-            total_skipped += skipped
-            total_errors += errors
+        stats_array[0] += total
+        stats_array[1] += downloaded
+        stats_array[2] += skipped
+        stats_array[3] += errors
 
         logger.info("Done downloading from /r/%s to \"%s\" Downloaded: %d, "
                     "skipped/errors %d/%d, total processed: %d", subreddit,
                      subreddit_destination, downloaded, skipped, errors, total)
-        threadqueue.task_done()
+        processqueue.task_done()
 
 
 
@@ -216,10 +205,10 @@ if __name__ == '__main__':
                       default=DEFAULT_CREATE_DESTINATION, help="create the "
                       "destination directory if it does not exist",
                       action="store_true")
-    parser.add_option("-t", "--threads", action="store", type="int",
-                      dest="max_threads", default=DEFAULT_MAX_THREADS,
-                      metavar="NUM", help="create a maximum of NUM threads "
-                      "[default: {0}]".format(DEFAULT_MAX_THREADS))
+    parser.add_option("-p", "--processes", action="store", type="int",
+                      dest="max_processes", default=DEFAULT_MAX_PROCESSES,
+                      metavar="NUM", help="create a maximum of NUM processes "
+                      "[default: {0}]".format(DEFAULT_MAX_PROCESSES))
     parser.add_option("-e", "--extension", action="store", type="string",
                       dest="list_extension", default=DEFAULT_LIST_EXTENSION,
                       metavar="EXT", help="change the extension of subreddit "
@@ -286,7 +275,7 @@ if __name__ == '__main__':
     no_sfw = options.no_sfw
     no_nsfw = options.no_nsfw
     max_downloads = options.max_downloads
-    max_threads = options.max_threads
+    max_processes = options.max_processes
     flood_timeout = options.flood_timeout
     list_extension = options.list_extension
     shuffle = options.shuffle
@@ -374,7 +363,7 @@ if __name__ == '__main__':
     logfile_handler.setLevel(logging.DEBUG)
 
     formatter = logging.Formatter(
-        fmt="[{asctime}] [{levelname}] [{threadName}] {message}",
+        fmt="[{asctime}] [{levelname}] [{processName}] {message}",
         style='{')
 
     stdout_handler.setFormatter(formatter)
@@ -447,13 +436,10 @@ if __name__ == '__main__':
             all_subreddits_list[0][1].extend(subreddits)
         lists = all_subreddits_list
 
-    threadqueue = queue.Queue()
-    lock = threading.Lock()
+    processqueue = multiprocessing.JoinableQueue()
+    lock = multiprocessing.Lock()
 
-    total_processed = 0
-    total_downloaded = 0
-    total_skipped = 0
-    total_errors = 0
+    stats_array = multiprocessing.Array(ctypes.c_int, 4)
 
     for (path, subreddits) in lists:
         logger.debug("Working on list \"%s\" with subreddits %s.", path,
@@ -474,27 +460,36 @@ if __name__ == '__main__':
         logger.info("Downloading subreddits in list \"%s\" into folder \"%s\"",
               os.path.basename(path), list_destination)
         for subreddit in subreddits:
-            # Feed the queue
-            threadqueue.put((subreddit, list_destination))
-        # Start processing threads
-        for i in range(min(len(subreddits), max_threads)):
-            thread = threading.Thread(target=download_subreddit)
-            thread.start()
-            logger.debug("Started thread %s", thread.name)
-            # prevent all threads from starting simultaneously
+            # Feed the processqueue
+            processqueue.put((subreddit, list_destination))
+        # Start processes
+        for i in range(min(len(subreddits), max_processes)):
+            process = multiprocessing.Process(
+                target=download_subreddit,
+                kwargs={"stats_array" : stats_array,
+                        "score" : score,
+                        "max_downloads" : max_downloads,
+                        "no_sfw" : no_sfw,
+                        "no_nsfw" : no_nsfw,
+                        "regex" : regex,
+                        "verbose" : verbose,
+                        "flood_timeout" : flood_timeout})
+            process.start()
+            logger.debug("Started process %s", process.name)
+            # prevent all processes from starting simultaneously
             time.sleep(flood_timeout/1000)
-        logger.debug("Waiting for threads to finish ...")
-        threadqueue.join()
-        logger.debug("All threads finished.")
+        logger.debug("Waiting for processes to finish ...")
+        processqueue.join()
+        logger.debug("All processes finished.")
         logger.info("Downloads from subreddits in list \"%s\" completed, can "
             "be found in %s", os.path.basename(path), list_destination)
 
 
     logger.info("--------------------------------------")
     logger.info("Finished downloading.")
-    logger.info("Total downloaded files: %s", total_downloaded)
-    logger.info("Total skipped/errors:   %s/%s", total_skipped, total_errors)
-    logger.info("Total processed:        %s", total_processed)
+    logger.info("Total downloaded files: %s", stats_array[1])
+    logger.info("Total skipped/errors:   %s/%s", stats_array[2], stats_array[3])
+    logger.info("Total processed:        %s", stats_array[0])
     logger.info("--------------------------------------")
 
     logger.debug("Shutting down logging system. Bye.")

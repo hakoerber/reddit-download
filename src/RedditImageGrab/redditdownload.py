@@ -9,7 +9,7 @@ import argparse
 import os.path
 import logging
 import sys
-import threading
+import multiprocessing
 import time
 
 import RedditImageGrab.reddit
@@ -23,8 +23,8 @@ class WrongFileTypeException(Exception):
 class FileExistsException(Exception):
     """Exception raised when file exists in specified directory"""
 
-urlopen_timeout_lock = threading.Lock()
-urlopen_imgur_album_lock = threading.Lock()
+urlopen_timeout_lock = multiprocessing.Lock()
+urlopen_imgur_album_lock = multiprocessing.Lock()
 
 def urlopen_timeout_wrapper(url, timeout=1000, lock=urlopen_timeout_lock):
     with urlopen_timeout_lock:

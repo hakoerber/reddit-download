@@ -2,15 +2,15 @@
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from json import JSONDecoder
-import threading
+import multiprocessing
 import time
 import logging
 
 logger = logging.getLogger()
-LIMIT = 100
+LIMIT = 25
 SORTING = "hot"
 
-lock = threading.Lock()
+lock = multiprocessing.Lock()
 
 def getitems(subreddit, previd, timeout):
     """Return list of items from a subreddit."""
