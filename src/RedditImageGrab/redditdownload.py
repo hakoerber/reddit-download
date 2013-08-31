@@ -13,12 +13,10 @@ import sys
 import multiprocessing
 import time
 
-import praw
+import reddit
 
 USER_AGENT = ("reddit-download script. "
               "http://github.com/whatevsz/reddit-download")
-
-reddit_api = praw.Reddit(USER_AGENT)
 
 logger = logging.getLogger()
 
@@ -148,8 +146,8 @@ def get_identifier(title):
 
 
 # returns a tuple: (processed, downoaded, errors, skipped)
-def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
-             verbose, quiet, timeout):
+def download(subreddit, destination, last, score, num, update, sfw, nsfw,
+             regex, verbose, quiet, timeout):
 
     if update:
         raise NotImplementedError(
@@ -172,31 +170,29 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
     if regex:
         regex_compiled = re.compile(regex)
 
-    url = "http://www.reddit.com/r/%s" % subreddit
-    subreddit = reddit_api.get_subreddit(subreddit)
-    subreddit_content = subreddit.get_hot()
+    links = reddit.get_links(subreddit, timeout=timeout, limit=num)
 
-    for submission in subreddit_content:
+    for link in links:
         processed += 1
-        identifier = get_identifier(submission.title)
+        identifier = get_identifier(link.title)
 
-        if submission.score < score:
+        if link.score < score:
             logger.verbose("SCORE: \"%s\" has score of %s which is lower "
                             "than the required score of %s, will be "
-                            "skipped.", title, submission.score, score)
+                            "skipped.", title, link.score, score)
             skipped += 1
             continue
-        if sfw and submssion.over_18:
+        if sfw and link.nsfw:
             logger.verbose('NSFW: \"%s\" is marked as NSFW, will be '
                             "skipped", title)
             skipped += 1
             continue
-        if nsfw and not submssion.over_18:
+        if nsfw and not link.nsfw:
             logger.verbose("NOT NSFW: \"%s\" is not marked as NSFW, will "
                             "be skipped.", title)
             skipped += 1
             continue
-        if regex and not re.match(regex_compiled, submission.title):
+        if regex and not re.match(regex_compiled, link.title):
             logger.verbose("REGEX: \"%s\" did not match regular expression "
                             "%s, will be skipped.", title)
             skipped += 1
@@ -205,7 +201,7 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw, regex,
         filecount = 0
         urls = []
         try:
-            urls = extract_urls(submission.url)
+            urls = extract_urls(link.url)
 
         except (urllib.error.HTTPError, urllib.error.URLError,
                 http.client.HTTPException, TimeoutError,
