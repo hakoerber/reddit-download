@@ -3,7 +3,8 @@ from distutils.core import setup
 setup(
       name = 'reddit-download',
       version = '0.1-dev',
-      url = 'https://github.com/whatevsz/reddit-download',
+      url = 'http://github.com/whatevsz/reddit-download',
+      download_url = 'http://github.com/whatevsz/reddit-download/releases',
 
       author = 'Hannes Körber',
       author_email = 'hannes.koerber@gmail.com',
@@ -22,13 +23,16 @@ setup(
       requires = ['requests'],
 
       classifiers = [
-          'Development Status ::3 - Alpha',
+          'Development Status :: 2 - Pre-Alpha',
           'Environment :: Console',
           'Intended Audience :: End Users/Desktop',
           'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
           'Natural Language :: English',
           'Operating System :: POSIX :: Linux',
+          'Programming Language :: Python',
+          'Programming Language :: Python :: 3',
           'Programming Language :: Python :: 3.3',
-          'Topic :: System :: Internet'
+          'Topic :: Internet',
+          'Topic :: Multimedia :: Graphics'
           ]
       )

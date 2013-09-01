@@ -1,27 +1,12 @@
 reddit-download
 ===============
 
+Work in progress.
 
+This software uses RedditImageGrab by Daniel Brown, which can be found at
+http://github.com/dpbrown/RedditImageGrab.
 
-
-
-options
-=======
-
-shuffle options
-===============
-lists:
-
-list-subreddits
-all-subreddits
-
-
-
-
-
-
-
-original readme.txt of RedditImageGrab:
+original "readme.txt" of RedditImageGrab:
 
 I created this script to download the latest (and greatest) wallpapers
 off of image subreddits like wallpaper to keep my desktop wallpaper
