@@ -43,7 +43,7 @@ unprivileged_path = os.path.join(UNPRIVILEGED_FOLDER, NAME)
 try:
     if os.getuid() == 0 or os.access(privileged_path, os.W_OK):
         logfile = privileged_path
-    else: #maybe we are allowed to create the log folder? (unlikely, i admit it)
+    else:  # maybe we are allowed to create the log folder?
         if os.access(PRIVILEGED_FOLDER, os.W_OK):
             os.mkdir(privileged_path)
             logfile = privileged_path
@@ -61,8 +61,8 @@ except OSError as error:
 DEFAULT_LIST_EXTENSION = ".list"
 # Look here: https://github.com/reddit/reddit/wiki/API
 # "Make no more than thirty requests per minute.
-# This allows some burstiness to your requests, but keep it sane. On average, we
-# should see no more than one request every two seconds from you."
+# This allows some burstiness to your requests, but keep it sane. On average,
+# we should see no more than one request every two seconds from you."
 DEFAULT_FLOOD_TIMEOUT = 2000
 DEFAULT_MAX_PROCESSES = 10
 DEFAULT_CREATE_DESTINATION = False
@@ -79,41 +79,43 @@ DEFAULT_SHUFFLE_ALL_SUBREDDITS = False
 DEFAULT_LOGGING_ENABLED = True
 
 EXIT_INVALID_DESTINATION = 1
-ERROR_INVALID_COMMAND_LINE = 2 # same in optparse
+ERROR_INVALID_COMMAND_LINE = 2  # same in optparse
 ERROR_UNKNOWN = 100
 
 COMMENT_CHAR = "#"
 
+
 class LevelFilter(object):
     def __init__(self, minlvl=logging.NOTSET, maxlvl=logging.NOTSET):
-        self.__setMinLevel(minlvl)
-        self.__setMaxLevel(maxlvl)
+        self.__minlvl = minlvl
+        self.__maxlvl = maxlvl
 
     def filter(self, record):
-        if (self.getMinLevel() != logging.NOTSET and
-                record.levelno < self.getMinLevel()):
+        if (self.get_min_level() != logging.NOTSET and
+                record.levelno < self.get_min_level()):
             return False
-        if (self.getMaxLevel() != logging.NOTSET and
-                record.levelno > self.getMaxLevel()):
+        if (self.get_max_level() != logging.NOTSET and
+                record.levelno > self.get_max_level()):
             return False
         return True
 
-    def getMinLevel(self):
+    def get_min_level(self):
         return self.__minlvl
 
-    def getMaxLevel(self):
+    def get_max_level(self):
         return self.__maxlvl
 
-    def __setMinLevel(self, minlvl):
+    def __set_min_level(self, minlvl):
         self.__minlvl = minlvl
 
-    def __setMaxLevel(self, maxlvl):
+    def __set_max_level(self, maxlvl):
         self.__maxlvl = maxlvl
 
 
 def check_file(file_path, list_extension):
     return (file_path.endswith(list_extension)
             and os.path.basename(file_path) != list_extension)
+
 
 def get_lists(directory, recursive, list_extension):
     if recursive:
@@ -128,17 +130,20 @@ def get_lists(directory, recursive, list_extension):
         return [os.path.join(directory, path) for path in os.listdir(directory)
                 if check_file(path, list_extension)]
 
+
 def check_line(line):
     return line and not line.startswith(COMMENT_CHAR)
 
+
 def parse_file(path):
     subreddits = list()
-    with open(path) as fd:
-        for line in fd:
+    with open(path) as file_descriptor:
+        for line in file_descriptor:
             line = line.strip()
             if check_line(line):
                 subreddits.append(line)
     return subreddits
+
 
 # Worker method
 def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
@@ -147,7 +152,7 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
         try:
             (subreddit, destination) = processqueue.get(block=False)
         except queue.Empty:
-            logger.info("No more items to process. Process done.")
+            logger.debug("No more items to process. Process done.")
             return
         subreddit_destination = os.path.join(destination, subreddit)
         if not os.path.isdir(subreddit_destination):
@@ -158,7 +163,7 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
             os.mkdir(subreddit_destination)
 
         logger.info("Starting download from /r/%s to %s", subreddit,
-              subreddit_destination)
+                    subreddit_destination)
 
         #(total, downloaded, skipped, errors) = (10, 5, 3, 2)
         #time.sleep(random.randrange(3,8))
@@ -175,7 +180,7 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
             raise
         except Exception as e:
             logger.critical("Encountered unexpected exception %s. Aborting.",
-                            repr(e), exc_info=True)
+                            repr(e), exc_info=True, stack_info=Trues)
             sys.exit(ERROR_UNKNOWN)
 
         stats_array[0] += total
@@ -185,10 +190,8 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
 
         logger.info("Done downloading from /r/%s to \"%s\" Downloaded: %d, "
                     "skipped/errors %d/%d, total processed: %d", subreddit,
-                     subreddit_destination, downloaded, skipped, errors, total)
+                    subreddit_destination, downloaded, skipped, errors, total)
         processqueue.task_done()
-
-
 
 
 if __name__ == '__main__':
@@ -216,7 +219,8 @@ if __name__ == '__main__':
                       "list files [default: \"{0}\"]".
                       format(DEFAULT_LIST_EXTENSION))
     parser.add_option("--shuffle", action="store", dest="shuffle",
-                      type="string", default=DEFAULT_SHUFFLE, metavar="OPTIONS",
+                      type="string", default=DEFAULT_SHUFFLE,
+                      metavar="OPTIONS",
                       help="changes the shuffling behaviour.Valid OPTIONS "
                       "include: lists, list-subreddits, all-subreddits")
     parser.add_option("--no-log", action="store_false", dest="logging_enabled",
@@ -228,17 +232,16 @@ if __name__ == '__main__':
                       "into FILE instead of the default location [NOT "
                       "IMPLEMENTED]")
 
-
     group = optparse.OptionGroup(parser, "filter options")
     group.add_option("--no-sfw", action="store_true", dest="no_sfw",
-                     default=DEFAULT_NO_SFW, help="do not download images that "
-                     "are sfw")
+                     default=DEFAULT_NO_SFW, help="do not download images "
+                     "that are sfw")
     group.add_option("--no-nsfw", action="store_true", dest="no_nsfw",
-                     default=DEFAULT_NO_NSFW, help="do not download images that "
-                     "are nsfw")
+                     default=DEFAULT_NO_NSFW, help="do not download images "
+                     "that are nsfw")
     group.add_option("--score", action="store", type="int", dest="score",
-                     default=DEFAULT_SCORE, help="do not download images with a "
-                     "rating lower than SCORE", metavar="SCORE")
+                     default=DEFAULT_SCORE, help="do not download images with "
+                     "a rating lower than SCORE", metavar="SCORE")
     group.add_option("--regex", action="store", type="string", dest="regex",
                      default=DEFAULT_REGEX, help="only download images with "
                      "titles that match the given regular expression")
@@ -258,9 +261,9 @@ if __name__ == '__main__':
 
     group = optparse.OptionGroup(parser, "output control")
     group.add_option("-q", "--quiet", action="store_true", dest="quiet",
-                      help="be more quiet")
+                     help="be more quiet")
     group.add_option("-v", "--verbose", action="store_true", dest="verbose",
-                      help="be more verbose")
+                     help="be more verbose")
     parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, "debug options")
@@ -313,9 +316,9 @@ if __name__ == '__main__':
                 destination))
             sys.exit(EXIT_INVALID_DESTINATION)
         if not options.create_destination:
-           print("{0} does not exist and shall now be created.".
-                format(destination))
-           sys.exit(EXIT_INVALID_DESTINATION)
+            print("{0} does not exist and shall now be created.".
+                  format(destination))
+            sys.exit(EXIT_INVALID_DESTINATION)
         os.mkdir(destination)
 
     # arguments and options should be sane, we can start logging now
@@ -327,7 +330,7 @@ if __name__ == '__main__':
     logging.addLevelName(logging.VERBOSE, "VERBOSE")
     logging.Logger.verbose = \
         lambda obj, msg, *args, **kwargs: \
-            obj.log(logging.VERBOSE, msg, *args, **kwargs)
+        obj.log(logging.VERBOSE, msg, *args, **kwargs)
 
     #logger.verbose = \
     #    lambda msg, *args, **kwargs: \
@@ -381,14 +384,14 @@ if __name__ == '__main__':
     logger.debug("Arguments extracted: %s", args)
 
     # TODO Dude, there is some work left in the next block ...
-    paths = list() # lazyness
+    paths = list()  # lazyness
     # [ ( PATH , [ SUBREDDITS , ... ] ) , ... ]
     # Cannot be a dict, otherwise correct order would not be guaranteed
     lists = list()
     for path in args:
         if os.path.isdir(path):
             for list_path in get_lists(path, recursive=recursive,
-                                      list_extension=list_extension):
+                                       list_extension=list_extension):
                 if list_path in paths:
                     logger.info("%s already encountered, ignored.", list_path)
                 else:
@@ -432,7 +435,7 @@ if __name__ == '__main__':
         logger.critical("function implementation faulty, DO NO USE")
         raise NotImplementedError()
         all_subreddits_list = list()
-        all_subreddits_list.append(("shuffled-subreddits",list()))
+        all_subreddits_list.append(("shuffled-subreddits", list()))
         for (_, subreddits) in lists:
             all_subreddits_list[0][1].extend(subreddits)
         lists = all_subreddits_list
@@ -459,7 +462,7 @@ if __name__ == '__main__':
                          list_destination)
             os.mkdir(list_destination)
         logger.info("Downloading subreddits in list \"%s\" into folder \"%s\"",
-              os.path.basename(path), list_destination)
+                    os.path.basename(path), list_destination)
         for subreddit in subreddits:
             # Feed the processqueue
             processqueue.put((subreddit, list_destination))
@@ -467,14 +470,14 @@ if __name__ == '__main__':
         for i in range(min(len(subreddits), max_processes)):
             process = multiprocessing.Process(
                 target=download_subreddit,
-                kwargs={"stats_array" : stats_array,
-                        "score" : score,
-                        "max_downloads" : max_downloads,
-                        "no_sfw" : no_sfw,
-                        "no_nsfw" : no_nsfw,
-                        "regex" : regex,
-                        "verbose" : verbose,
-                        "flood_timeout" : flood_timeout})
+                kwargs={"stats_array": stats_array,
+                        "score": score,
+                        "max_downloads": max_downloads,
+                        "no_sfw": no_sfw,
+                        "no_nsfw": no_nsfw,
+                        "regex": regex,
+                        "verbose": verbose,
+                        "flood_timeout": flood_timeout})
             process.start()
             logger.debug("Started process %s", process.name)
             # prevent all processes from starting simultaneously
@@ -483,13 +486,13 @@ if __name__ == '__main__':
         processqueue.join()
         logger.debug("All processes finished.")
         logger.info("Downloads from subreddits in list \"%s\" completed, can "
-            "be found in %s", os.path.basename(path), list_destination)
-
+                    "be found in %s", os.path.basename(path), list_destination)
 
     logger.info("--------------------------------------")
     logger.info("Finished downloading.")
     logger.info("Total downloaded files: %s", stats_array[1])
-    logger.info("Total skipped/errors:   %s/%s", stats_array[2], stats_array[3])
+    logger.info("Total skipped/errors:   %s/%s", stats_array[2],
+                stats_array[3])
     logger.info("Total processed:        %s", stats_array[0])
     logger.info("--------------------------------------")
 

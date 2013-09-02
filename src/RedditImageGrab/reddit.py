@@ -16,7 +16,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 import multiprocessing
 import time
 import logging
@@ -27,7 +26,13 @@ REDDIT_MIN_TIMEOUT = 2000
 
 logger = logging.getLogger()
 
+# Disable logging for the requests module.
+import logging
+requests_log = logging.getLogger("requests")
+requests_log.setLevel(logging.WARNING)
+
 lock = multiprocessing.Lock()
+
 
 class RedditLink(object):
     def __init__(self, title, url, name, score, nsfw):
@@ -54,12 +59,12 @@ def get_links(subreddit, timeout=REDDIT_MIN_TIMEOUT, limit=None, headers=None,
 
     url = "http://www.reddit.com/r/" + subreddit + ".json"
 
-    headers = { 'User-Agent' : 'Testing a scipt. /u/whatevsz.' }
+    headers = {'User-Agent': 'Testing a scipt. /u/whatevsz.'}
 
     headers = headers or {}
     params = params or {}
     limit = limit or REDDIT_LINK_LIMIT
-    params ["limit"] = limit
+    params["limit"] = limit
     if timeout < REDDIT_MIN_TIMEOUT:
         logger.warning("A timeout of %d milliseconds is against the reddit "
                        "API rules. It will be set to %d milliseconds instead."
@@ -74,7 +79,7 @@ def get_links(subreddit, timeout=REDDIT_MIN_TIMEOUT, limit=None, headers=None,
         with lock:
             time_since_last_request = time.monotonic() - last_request
             if time_since_last_request < timeout / 1000 and not firstrun:
-                sleeptime =  timeout / 1000 - time_since_last_request
+                sleeptime = timeout / 1000 - time_since_last_request
                 time.sleep(sleeptime)
             firstrun = False
             last_request = time.monotonic()

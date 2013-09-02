@@ -5,3 +5,4 @@ check for race conditions in RedditImageGrab (hint: there are thousands)
 check if --update works
 windows compatibility
 maybe use multiprocessing instead of mutlithreading?
+what if no internet connection?

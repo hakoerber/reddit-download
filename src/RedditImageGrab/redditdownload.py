@@ -1,5 +1,3 @@
-"""Download images from a reddit.com subreddit."""
-
 import re
 import io
 import urllib.request
@@ -7,18 +5,20 @@ import urllib.error
 import urllib.parse
 import http.client
 import argparse
+import os
 import os.path
 import logging
 import sys
 import multiprocessing
 import time
 
-import reddit
+from . import reddit
 
 USER_AGENT = ("reddit-download script. "
               "http://github.com/whatevsz/reddit-download")
 
 logger = logging.getLogger()
+
 
 class WrongFileTypeException(Exception):
     """Exception raised when incorrect content-type discovered"""
@@ -27,8 +27,10 @@ class WrongFileTypeException(Exception):
 class FileExistsException(Exception):
     """Exception raised when file exists in specified directory"""
 
+
 urlopen_timeout_lock = multiprocessing.Lock()
 urlopen_imgur_album_lock = multiprocessing.Lock()
+
 
 def urlopen_timeout_wrapper(url, timeout=1000, lock=urlopen_timeout_lock):
     with urlopen_timeout_lock:
@@ -51,14 +53,13 @@ def urlopen_timeout_wrapper(url, timeout=1000, lock=urlopen_timeout_lock):
     return (response_info, response_data, response_encoding)
 
 
-
-def download_from_url(url, dest_file):
+def download_from_url(url, dest_file, files_in_dest):
     # Don't download files multiple times!
-    if os.path.exists(dest_file):
+    if os.path.basename(dest_file) in files_in_dest:
         raise FileExistsException('URL \"%s\" already downloaded.' % url)
 
-    # Imgur does not care about extensions. If a MIME type is available, we will
-    # change the extension accordingly if necessary
+    # Imgur does not care about extensions. If a MIME type is available, we
+    # will change the extension accordingly if necessary
 
     (response_info, response_data, _) = urlopen_timeout_wrapper(url)
     filetype_mime = None
@@ -76,14 +77,17 @@ def download_from_url(url, dest_file):
     # if filetype_mime and filetype_extension diverge, filetype_mime takes
     # precedence
     if filetype_mime and filetype_mime != filetype_extension:
-        extension = os.path.splitext(url.url.split("/")[-1])[1]
+        extension = os.path.splitext(url.split("/")[-1])[1]
         url = url[:-len(extension)]
+        new_extension = None
         if filetype_mime == 'image/jpeg':
             new_extension = '.jpg'
         if filetype_mime == 'image/png':
             new_extension = '.png'
         if filetype_mime == 'image/gif':
             new_extension = '.gif'
+        if not new_extension:
+            new_extension = extension
         url = "%s%s" % (url, new_extension)
 
     filetype = filetype_mime or filetype_extension
@@ -126,7 +130,8 @@ def extract_urls(url):
     if 'imgur.com' in urllib.parse.urlparse(url).netloc:
         return process_imgur_url(url)
     elif 'imgur.com' in url:
-        logger.warning("\"%s\" might be an imgur URL. Please investigate.", url)
+        logger.warning("\"%s\" might be an imgur URL. Please investigate.",
+                       url)
     else:
         return [url]
 
@@ -153,6 +158,7 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
         raise NotImplementedError(
             "The update functionality is not implemented.")
 
+    files_in_dest = os.listdir(destination)
     max_filename_len = os.statvfs(destination)[9]
     processed = 0
     downloaded = 0
@@ -178,23 +184,23 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
 
         if link.score < score:
             logger.verbose("SCORE: \"%s\" has score of %s which is lower "
-                            "than the required score of %s, will be "
-                            "skipped.", title, link.score, score)
+                           "than the required score of %s, will be skipped.",
+                           title, link.score, score)
             skipped += 1
             continue
         if sfw and link.nsfw:
             logger.verbose('NSFW: \"%s\" is marked as NSFW, will be '
-                            "skipped", title)
+                           "skipped", title)
             skipped += 1
             continue
         if nsfw and not link.nsfw:
             logger.verbose("NOT NSFW: \"%s\" is not marked as NSFW, will "
-                            "be skipped.", title)
+                           "be skipped.", title)
             skipped += 1
             continue
         if regex and not re.match(regex_compiled, link.title):
             logger.verbose("REGEX: \"%s\" did not match regular expression "
-                            "%s, will be skipped.", title)
+                           "%s, will be skipped.", title)
             skipped += 1
             continue
 
@@ -213,7 +219,6 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
             errors += 1
             continue
 
-
         for url in urls:
             try:
                 # Only append numbers if more than one file.
@@ -223,13 +228,13 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
                 # Shorted too long filenames
                 if len(file_name) > max_filename_len:
                     logger.info("Filename \"%s\" is too long, will be "
-                                "truncated to %d characters." , file_name,
+                                "truncated to %d characters.", file_name,
                                 max_filename_len)
                     file_name = truncate_filename(file_name, max_filename_len)
                 file_path = os.path.join(destination, file_name)
-                download_from_url(url, file_path)
+                download_from_url(url, file_path, files_in_dest)
                 logger.verbose('Downloaded URL \"%s\" to \"%s\".', url,
-                                file_path)
+                               file_path)
                 downloaded += 1
                 filecount += 1
 
@@ -259,17 +264,32 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
 
 ### Only needed when called directly.
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Downloads files with specified extension from the specified subreddit.')
-    parser.add_argument('reddit', metavar='<subreddit>', help='Subreddit name.')
-    parser.add_argument('dir', metavar='<dest_file>', help='Dir to put downloaded files in.')
-    parser.add_argument('-last', metavar='l', default='', required=False, help='ID of the last downloaded file.')
-    parser.add_argument('-score', metavar='s', default=0, type=int, required=False, help='Minimum score of images to download.')
-    parser.add_argument('-num', metavar='n', default=0, type=int, required=False, help='Number of images to download.')
-    parser.add_argument('-update', default=False, action='store_true', required=False, help='Run until you encounter a file already downloaded.')
-    parser.add_argument('-sfw', default=False, action='store_true', required=False, help='Download safe for work images only.')
-    parser.add_argument('-nsfw', default=False, action='store_true', required=False, help='Download NSFW images only.')
-    parser.add_argument('-regex', default=None, action='store', required=False, help='Use Python regex to filter based on title.')
-    parser.add_argument('-verbose', default=False, action='store_true', required=False, help='Enable verbose output.')
+    parser = argparse.ArgumentParser(
+        description="Downloads files with specified extension from the "
+        "specified subreddit.")
+    parser.add_argument('reddit', metavar='<subreddit>',
+                        help='Subreddit name.')
+    parser.add_argument('dir', metavar='<dest_file>',
+                        help='Dir to put downloaded files in.')
+    parser.add_argument('-last', metavar='l', default='', required=False,
+                        help='ID of the last downloaded file.')
+    parser.add_argument('-score', metavar='s', default=0, type=int,
+                        required=False, help='Minimum score of images to '
+                        'download.')
+    parser.add_argument('-num', metavar='n', default=0, type=int,
+                        required=False, help='Number of images to download.')
+    parser.add_argument('-update', default=False, action='store_true',
+                        required=False, help='Run until you encounter a file '
+                        'already downloaded.')
+    parser.add_argument('-sfw', default=False, action='store_true',
+                        required=False, help='Download safe for work images '
+                        'only.')
+    parser.add_argument('-nsfw', default=False, action='store_true',
+                        required=False, help='Download NSFW images only.')
+    parser.add_argument('-regex', default=None, action='store', required=False,
+                        help='Use Python regex to filter based on title.')
+    parser.add_argument('-verbose', default=False, action='store_true',
+                        required=False, help='Enable verbose output.')
     args = parser.parse_args()
 
     download(args.reddit, args.dir, args.last, args.score, args.num,
