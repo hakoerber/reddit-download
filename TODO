@@ -6,3 +6,4 @@ check if --update works
 windows compatibility
 maybe use multiprocessing instead of mutlithreading?
 what if no internet connection?
+check those exceptions

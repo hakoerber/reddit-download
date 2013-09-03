@@ -11,6 +11,7 @@ import logging
 import sys
 import multiprocessing
 import time
+import requests
 
 from . import reddit
 
@@ -28,86 +29,86 @@ class FileExistsException(Exception):
     """Exception raised when file exists in specified directory"""
 
 
-urlopen_timeout_lock = multiprocessing.Lock()
-urlopen_imgur_album_lock = multiprocessing.Lock()
+request_timeout_lock = multiprocessing.Lock()
+request_imgur_album_lock = multiprocessing.Lock()
 
 
-def urlopen_timeout_wrapper(url, timeout=1000, lock=urlopen_timeout_lock):
-    with urlopen_timeout_lock:
-        #logger.critical("Aquired lock")
-        start = time.perf_counter()
+last_request = 0
+firstrun = True
+def urlopen_timeout_wrapper(url, lock, timeout=1000):
+    global last_request, firstrun
+    # sends a request and locks for timeout milliseconds
+    with lock:
+        time_since_last_request = time.monotonic() - last_request
+        if time_since_last_request < timeout / 1000 and not firstrun:
+            sleeptime = timeout / 1000 - time_since_last_request
+            time.sleep(sleeptime)
+        firstrun = False
+        last_request = time.monotonic()
 
         logger.debug("Opening URL \"%s\"", url)
-        response = urllib.request.urlopen(url)
-        response_info = response.info()
-        response_data = response.read()
-        response_encoding = response.headers.get_content_charset()
+        response = requests.get(url)
 
-        sleep_time = timeout / 1000 - (time.perf_counter() - start)
-        if sleep_time > 0:
-            #logger.critical("sleeptime %s", sleep_time)
-            #logger.critical("doing a nap")
-            time.sleep(sleep_time)
-        #logger.critical("thanks for the lock, done with it")
-
-    return (response_info, response_data, response_encoding)
+    return response
 
 
-def download_from_url(url, dest_file, files_in_dest):
-    # Don't download files multiple times!
-    if os.path.basename(dest_file) in files_in_dest:
+def download_from_url(url, destination, identifier, files_in_dest,
+                      max_filename_len):
+    # Extension is not significant
+    if identifier in files_in_dest:
         raise FileExistsException('URL \"%s\" already downloaded.' % url)
 
     # Imgur does not care about extensions. If a MIME type is available, we
     # will change the extension accordingly if necessary
 
-    (response_info, response_data, _) = urlopen_timeout_wrapper(url)
-    filetype_mime = None
-    if 'content-type' in list(response_info.keys()):
-        filetype_mime = response_info['content-type']
+    response = urlopen_timeout_wrapper(url, request_timeout_lock)
+    extension_mime = None
+    if 'content-type' in response.headers.keys():
+        filetype_mime = response.headers['content-type']
+    if filetype_mime == "image/jpeg" or filetype_mime == "image/jpg":
+        extension_mime = ".jpg"
+    elif filetype_mime == "image/png":
+        extension_mime = ".png"
+    elif filetype_mime == "image/gif":
+        extension_mime = ".gif"
 
-    filetype_extension = None
-    if url.endswith('.jpg') or url.endswith('.jpeg'):
-        filetype_extension = 'image/jpeg'
-    elif url.endswith('.png'):
-        filetype_extension = 'image/png'
-    elif url.endswith('.gif'):
-        filetype_extension = 'image/gif'
+    extension_url = os.path.splitext(url.split("/")[-1])[1]
 
-    # if filetype_mime and filetype_extension diverge, filetype_mime takes
+    # if filetype_mime and filetype_url diverge, filetype_mime takes
     # precedence
-    if filetype_mime and filetype_mime != filetype_extension:
-        extension = os.path.splitext(url.split("/")[-1])[1]
-        url = url[:-len(extension)]
-        new_extension = None
-        if filetype_mime == 'image/jpeg':
-            new_extension = '.jpg'
-        if filetype_mime == 'image/png':
-            new_extension = '.png'
-        if filetype_mime == 'image/gif':
-            new_extension = '.gif'
-        if not new_extension:
-            new_extension = extension
-        url = "%s%s" % (url, new_extension)
-
-    filetype = filetype_mime or filetype_extension
+    extension = extension_mime or extension_url
 
     # Only try to download acceptable image types
-    if not filetype in ['image/jpeg', 'image/png', 'image/gif']:
+    if not extension in [".jpg", ".png", ".gif"]:
         raise WrongFileTypeException(
-            'WRONG FILE TYPE: URL \"%s\" has type: \"%s\"' % (url, filetype))
+            'WRONG FILE TYPE: URL \"%s\" has is of type \"%s\"' % (url,
+                                                                   extension))
 
-    with open(dest_file, 'wb') as filehandle:
-        filehandle.write(response_data)
+    dest_file_name = identifier + extension
+
+    # Shortened too long filenames
+    if len(dest_file_name) > max_filename_len:
+        logger.info("Filename \"%s\" is too long, will be "
+                    "truncated to %d characters.", dest_file_name,
+                    max_filename_len)
+        dest_file_name = truncate_filename(dest_file_name, max_filename_len)
+
+    dest_path = os.path.join(destination, dest_file_name)
+
+    with open(dest_path, 'wb') as filehandle:
+        filehandle.write(response.content)
+
+    logger.verbose('Downloaded URL \"%s\" to \"%s\".', url,
+                   dest_path)
+
 
 
 def extract_imgur_album_urls(album_url):
-    (response_info, response_data, response_encoding) = \
-        urlopen_timeout_wrapper(album_url, lock=urlopen_imgur_album_lock)
-    response_data = response_data.decode(response_encoding)
+    response = \
+        urlopen_timeout_wrapper(album_url, lock=request_imgur_album_lock)
     hash_regex = re.compile(r'\"hash\":\"(.[^\"]*)\"')
     items = []
-    with io.StringIO(response_data) as memfile:
+    with io.StringIO(response.text) as memfile:
         for line in memfile.readlines():
             results = re.findall(hash_regex, line)
             if results:
@@ -159,6 +160,8 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
             "The update functionality is not implemented.")
 
     files_in_dest = os.listdir(destination)
+    # Extensions are not significant
+    files_in_dest = [ os.path.splitext(f)[0] for f in files_in_dest ]
     max_filename_len = os.statvfs(destination)[9]
     processed = 0
     downloaded = 0
@@ -211,7 +214,13 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
 
         except (urllib.error.HTTPError, urllib.error.URLError,
                 http.client.HTTPException, TimeoutError,
-                UnicodeEncodeError, ConnectionError) as error:
+                UnicodeEncodeError, ConnectionError,
+                requests.exceptions.RequestException,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.HTTPError,
+                requests.packages.urllib3.exceptions.DecodeError,
+                requests.packages.urllib3.exceptions.LocationParseError)\
+                    as error:
             if urls:
                 if len(urls) == 1:
                     urls = urls[0]
@@ -222,21 +231,20 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
         for url in urls:
             try:
                 # Only append numbers if more than one file.
-                file_name = identifier
+                mutated_identifier = identifier
                 if len(urls) > 1:
-                    file_name = "%s_%s" % (file_name, filecount)
-                # Shorted too long filenames
-                if len(file_name) > max_filename_len:
-                    logger.info("Filename \"%s\" is too long, will be "
-                                "truncated to %d characters.", file_name,
-                                max_filename_len)
-                    file_name = truncate_filename(file_name, max_filename_len)
-                file_path = os.path.join(destination, file_name)
-                download_from_url(url, file_path, files_in_dest)
-                logger.verbose('Downloaded URL \"%s\" to \"%s\".', url,
-                               file_path)
-                downloaded += 1
+                    mutated_identifier += "_%s" % filecount
+
+                # has to be updated BEFORE calling download_from_url(), as it
+                # might raise a FileExistsException, continue, the next
+                # mutated_identifier would be the same as before,
+                # download_from_url() would raise the same exception, and so
+                # on, so all leftover items of an imgur album would be skipped.
                 filecount += 1
+
+                download_from_url(url, destination, mutated_identifier,
+                                  files_in_dest, max_filename_len)
+                downloaded += 1
 
                 if num > 0 and downloaded >= num:
                     break
@@ -248,11 +256,15 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
                 if not quiet:
                     logger.verbose('%s', error)
                 skipped += 1
-                if update:
-                    pass
             except (urllib.error.HTTPError, urllib.error.URLError,
                     http.client.HTTPException, TimeoutError,
-                    UnicodeEncodeError, ConnectionError) as error:
+                    UnicodeEncodeError, ConnectionError,
+                    requests.exceptions.RequestException,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.HTTPError,
+                    requests.packages.urllib3.exceptions.DecodeError,
+                    requests.packages.urllib3.exceptions.LocationParseError)\
+                        as error:
                 if urls:
                     if len(urls) == 1:
                         urls = urls[0]
@@ -269,7 +281,7 @@ if __name__ == "__main__":
         "specified subreddit.")
     parser.add_argument('reddit', metavar='<subreddit>',
                         help='Subreddit name.')
-    parser.add_argument('dir', metavar='<dest_file>',
+    parser.add_argument('dir', metavar='<identifier>',
                         help='Dir to put downloaded files in.')
     parser.add_argument('-last', metavar='l', default='', required=False,
                         help='ID of the last downloaded file.')

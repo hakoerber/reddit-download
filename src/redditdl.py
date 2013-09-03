@@ -45,11 +45,11 @@ try:
         logfile = privileged_path
     else:  # maybe we are allowed to create the log folder?
         if os.access(PRIVILEGED_FOLDER, os.W_OK):
-            os.mkdir(privileged_path)
+            os.makedirs(privileged_path)
             logfile = privileged_path
         else:
             if not os.path.isdir(unprivileged_path):
-                os.mkdir(unprivileged_path)
+                os.makedirs(unprivileged_path)
             if not os.access(unprivileged_path, os.W_OK):
                 raise OSError("No access to %s" % unprivileged_path)
             logfile = unprivileged_path
@@ -160,7 +160,7 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
                 logger.error("Invalid destination: %s. Skipping subreddit %s",
                              subreddit_destination, subreddit)
                 continue
-            os.mkdir(subreddit_destination)
+            os.makedirs(subreddit_destination)
 
         logger.info("Starting download from /r/%s to %s", subreddit,
                     subreddit_destination)
@@ -180,7 +180,7 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
             raise
         except Exception as e:
             logger.critical("Encountered unexpected exception %s. Aborting.",
-                            repr(e), exc_info=True, stack_info=Trues)
+                            repr(e), exc_info=True, stack_info=True)
             sys.exit(ERROR_UNKNOWN)
 
         stats_array[0] += total
@@ -319,7 +319,7 @@ if __name__ == '__main__':
             print("{0} does not exist and shall now be created.".
                   format(destination))
             sys.exit(EXIT_INVALID_DESTINATION)
-        os.mkdir(destination)
+        os.makedirs(destination)
 
     # arguments and options should be sane, we can start logging now
     logger = logging.getLogger()
@@ -460,7 +460,7 @@ if __name__ == '__main__':
                 continue
             logger.debug("Creating destination directory \"%s\".",
                          list_destination)
-            os.mkdir(list_destination)
+            os.makedirs(list_destination)
         logger.info("Downloading subreddits in list \"%s\" into folder \"%s\"",
                     os.path.basename(path), list_destination)
         for subreddit in subreddits:
