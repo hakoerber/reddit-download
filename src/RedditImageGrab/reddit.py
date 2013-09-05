@@ -16,10 +16,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import multiprocessing
-import time
 import logging
+import multiprocessing
 import socket
+import time
 
 import requests
 
@@ -32,7 +32,6 @@ TIMEOUT = 10.0
 logger = logging.getLogger()
 
 # Disable logging for the requests module.
-import logging
 requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.WARNING)
 
@@ -72,8 +71,8 @@ def get_links(subreddit, timeout=REDDIT_MIN_TIMEOUT, limit=None, headers=None,
     params["limit"] = limit
     if timeout < REDDIT_MIN_TIMEOUT:
         logger.warning("A timeout of %d milliseconds is against the reddit "
-                       "API rules. It will be set to %d milliseconds instead."
-                       % (timeout, REDDIT_MIN_TIMEOUT))
+                       "API rules. It will be set to %d milliseconds instead.",
+                       timeout, REDDIT_MIN_TIMEOUT)
         timeout = REDDIT_MIN_TIMEOUT
 
     links = 0
@@ -95,9 +94,9 @@ def get_links(subreddit, timeout=REDDIT_MIN_TIMEOUT, limit=None, headers=None,
                     json()
             except (requests.packages.urllib3.exceptions.TimeoutError,
                     TimeoutError, requests.exceptions.Timeout,
-                    socket.timeout) as error:
+                    socket.timeout):
                 logger.verbose("Connection to \"%s\" timed out.", url)
-            except ValueError as error:
+            except ValueError:
                 pass
             try:
                 if json_data:
@@ -114,7 +113,7 @@ def get_links(subreddit, timeout=REDDIT_MIN_TIMEOUT, limit=None, headers=None,
                             return
                 else:
                     return
-            except KeyError as error:
+            except KeyError:
                 logger.error("URL \"%s\" returned an invalid JSON. Skipping "
                              "this page.", url)
                 continue

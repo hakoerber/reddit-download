@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
       name = 'reddit-download',
-      version = '0.1-dev',
+      version = '0.1',
       url = 'http://github.com/whatevsz/reddit-download',
       download_url = 'http://github.com/whatevsz/reddit-download/releases',
 
@@ -14,7 +14,7 @@ setup(
       license = 'GNU GPL',
       platforms = ['Linux'],
       description = 'A downloader for images from reddit.',
-      long_description = open('README').read(),
+      long_description = open('README.rst').read(),
 
       package_dir = {'reddit-download': 'src'},
       packages = ['reddit-download', 'reddit-download.RedditImageGrab'],

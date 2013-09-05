@@ -1,17 +1,16 @@
-import re
-import io
-import urllib.request
-import urllib.error
-import urllib.parse
-import http.client
 import argparse
+import http.client
+import io
+import logging
+import multiprocessing
 import os
 import os.path
-import logging
-import sys
-import multiprocessing
-import time
+import re
 import socket
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import requests
 
@@ -55,7 +54,7 @@ def urlopen_timeout_wrapper(url, lock, timeout=200):
             response = requests.get(url, timeout=TIMEOUT)
         except (requests.packages.urllib3.exceptions.TimeoutError,
                 requests.exceptions.Timeout,
-                socket.timeout) as error:
+                socket.timeout):
             raise
 
     return response
@@ -138,7 +137,7 @@ def extract_imgur_album_urls(album_url):
         response = \
             urlopen_timeout_wrapper(album_url, lock=request_imgur_album_lock)
     except (requests.packages.urllib3.exceptions.TimeoutError,
-            requests.exceptions.Timeout, socket.timeout) as error:
+            requests.exceptions.Timeout, socket.timeout):
         return []
     hash_regex = re.compile(r'\"hash\":\"(.[^\"]*)\"')
     items = []
@@ -171,7 +170,6 @@ def extract_urls(url):
 
 
 def truncate_filename(file_name, limit):
-    # TODO maybe check if limit is too low?
     ext = os.path.splitext(file_name)[1]
     file_name = file_name[:(limit - len(ext))]
     file_name = "%s%s" % (file_name, ext)
@@ -223,22 +221,22 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
         if link.score < score:
             logger.verbose("SCORE: \"%s\" has score of %s which is lower "
                            "than the required score of %s, will be skipped.",
-                           title, link.score, score)
+                           link.title, link.score, score)
             skipped += 1
             continue
         if sfw and link.nsfw:
             logger.verbose('NSFW: \"%s\" is marked as NSFW, will be '
-                           "skipped", title)
+                           "skipped", link.title)
             skipped += 1
             continue
         if nsfw and not link.nsfw:
             logger.verbose("NOT NSFW: \"%s\" is not marked as NSFW, will "
-                           "be skipped.", title)
+                           "be skipped.", link.title)
             skipped += 1
             continue
         if regex and not re.match(regex_compiled, link.title):
             logger.verbose("REGEX: \"%s\" did not match regular expression "
-                           "%s, will be skipped.", title)
+                           "%s, will be skipped.", link.title)
             skipped += 1
             continue
 
