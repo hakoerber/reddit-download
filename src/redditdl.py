@@ -24,6 +24,7 @@ import multiprocessing
 import random
 import time
 import ctypes
+import traceback
 import logging
 import logging.handlers
 
@@ -31,6 +32,8 @@ import RedditImageGrab.redditdownload
 
 NAME = "reddit-download"
 VERSION = "0.1-dev"
+
+__version__ = VERSION
 
 PRIVILEGED_FOLDER = "/var/log"
 UNPRIVILEGED_FOLDER = "/var/tmp"
@@ -150,7 +153,7 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
                        regex, verbose, flood_timeout):
     while True:
         try:
-            (subreddit, destination) = processqueue.get(block=False)
+            (subreddit, destination) = processqueue.get(block=True, timeout=2)
         except queue.Empty:
             logger.debug("No more items to process. Process done.")
             return
@@ -181,7 +184,14 @@ def download_subreddit(stats_array, score, max_downloads, no_sfw, no_nsfw,
         except Exception as e:
             logger.critical("Encountered unexpected exception %s. Aborting.",
                             repr(e), exc_info=True, stack_info=True)
-            sys.exit(ERROR_UNKNOWN)
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback)
+            traceback.print_exception(exc_type, exc_value, exc_traceback)
+            logger.critical("Fuck the fucking fuck, ill continue for fucks "
+                            "sake")
+            pass
+            #sys.exit(ERROR_UNKNOWN)
+            total = downloadedd = skipped = errors = 0
 
         stats_array[0] += total
         stats_array[1] += downloaded
@@ -199,76 +209,76 @@ if __name__ == '__main__':
     version = "%prog {0}".format(VERSION)
     parser = optparse.OptionParser(usage=usage, version=version)
     parser.add_option("-r", "--recursive", action="store_true",
-                      dest="recursive", default=DEFAULT_RECURSIVE,
-                      help="search the directories recursively")
+                    dest="recursive", default=DEFAULT_RECURSIVE,
+                    help="search the directories recursively")
     parser.add_option("-d", "--dest", dest="destination", metavar="DEST",
-                      default=DEFAULT_DESTINATION,
-                      help="the directory to download to, defaults to the "
-                      "current working directory")
+                    default=DEFAULT_DESTINATION,
+                    help="the directory to download to, defaults to the "
+                    "current working directory")
     parser.add_option("-c", "--create-dest", dest="create_destination",
-                      default=DEFAULT_CREATE_DESTINATION, help="create the "
-                      "destination directory if it does not exist",
-                      action="store_true")
+                    default=DEFAULT_CREATE_DESTINATION, help="create the "
+                    "destination directory if it does not exist",
+                    action="store_true")
     parser.add_option("-p", "--processes", action="store", type="int",
-                      dest="max_processes", default=DEFAULT_MAX_PROCESSES,
-                      metavar="NUM", help="create a maximum of NUM processes "
-                      "[default: {0}]".format(DEFAULT_MAX_PROCESSES))
+                    dest="max_processes", default=DEFAULT_MAX_PROCESSES,
+                    metavar="NUM", help="create a maximum of NUM processes "
+                    "[default: {0}]".format(DEFAULT_MAX_PROCESSES))
     parser.add_option("-e", "--extension", action="store", type="string",
-                      dest="list_extension", default=DEFAULT_LIST_EXTENSION,
-                      metavar="EXT", help="change the extension of subreddit "
-                      "list files [default: \"{0}\"]".
-                      format(DEFAULT_LIST_EXTENSION))
+                    dest="list_extension", default=DEFAULT_LIST_EXTENSION,
+                    metavar="EXT", help="change the extension of subreddit "
+                    "list files [default: \"{0}\"]".
+                    format(DEFAULT_LIST_EXTENSION))
     parser.add_option("--shuffle", action="store", dest="shuffle",
-                      type="string", default=DEFAULT_SHUFFLE,
-                      metavar="OPTIONS",
-                      help="changes the shuffling behaviour.Valid OPTIONS "
-                      "include: lists, list-subreddits, all-subreddits")
+                    type="string", default=DEFAULT_SHUFFLE,
+                    metavar="OPTIONS",
+                    help="changes the shuffling behaviour.Valid OPTIONS "
+                    "include: lists, list-subreddits, all-subreddits")
     parser.add_option("--no-log", action="store_false", dest="logging_enabled",
-                      default=DEFAULT_LOGGING_ENABLED, help="disable logging, "
-                      "no log file will be used. [NOT IMPLEMENTED]")
+                    default=DEFAULT_LOGGING_ENABLED, help="disable logging, "
+                    "no log file will be used. [NOT IMPLEMENTED]")
     parser.add_option("-l", "--logfile", action="store",
-                      dest="commandline_logfile", default=logfile,
-                      type="string", metavar="FILE", help="redirect logging "
-                      "into FILE instead of the default location [NOT "
-                      "IMPLEMENTED]")
+                    dest="commandline_logfile", default=logfile,
+                    type="string", metavar="FILE", help="redirect logging "
+                    "into FILE instead of the default location [NOT "
+                    "IMPLEMENTED]")
 
     group = optparse.OptionGroup(parser, "filter options")
     group.add_option("--no-sfw", action="store_true", dest="no_sfw",
-                     default=DEFAULT_NO_SFW, help="do not download images "
-                     "that are sfw")
+                    default=DEFAULT_NO_SFW, help="do not download images "
+                    "that are sfw")
     group.add_option("--no-nsfw", action="store_true", dest="no_nsfw",
-                     default=DEFAULT_NO_NSFW, help="do not download images "
-                     "that are nsfw")
+                    default=DEFAULT_NO_NSFW, help="do not download images "
+                    "that are nsfw")
     group.add_option("--score", action="store", type="int", dest="score",
-                     default=DEFAULT_SCORE, help="do not download images with "
-                     "a rating lower than SCORE", metavar="SCORE")
+                    default=DEFAULT_SCORE, help="do not download images with "
+                    "a rating lower than SCORE", metavar="SCORE")
     group.add_option("--regex", action="store", type="string", dest="regex",
-                     default=DEFAULT_REGEX, help="only download images with "
-                     "titles that match the given regular expression")
+                    default=DEFAULT_REGEX, help="only download images with "
+                    "titles that match the given regular expression")
     parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, "download options")
     group.add_option("--max", action="store", type="int", dest="max_downloads",
-                     default=0, help="download a maximum of NUM pictures per "
-                     "subreddit", metavar="NUM")
+                    default=0, help="download a maximum of NUM pictures per "
+                    "subreddit", metavar="NUM")
     group.add_option("--flood-timeout", action="store", type="int",
-                     dest="flood_timeout", default=DEFAULT_FLOOD_TIMEOUT,
-                     metavar="MILLISECONDS", help="wait MILLISECONDS between "
-                     "connections to the server [default: {0}]".
-                     format(DEFAULT_FLOOD_TIMEOUT))
+                    dest="flood_timeout", default=DEFAULT_FLOOD_TIMEOUT,
+                    metavar="MILLISECONDS", help="wait MILLISECONDS between "
+                    "connections to the server [default: {0}]".
+                    format(DEFAULT_FLOOD_TIMEOUT))
 
     parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, "output control")
     group.add_option("-q", "--quiet", action="store_true", dest="quiet",
-                     help="be more quiet")
+                    help="be more quiet")
     group.add_option("-v", "--verbose", action="store_true", dest="verbose",
-                     help="be more verbose")
+                    help="be more verbose")
     parser.add_option_group(group)
 
     group = optparse.OptionGroup(parser, "debug options")
     group.add_option("--debug", action="store_true", dest="debug",
-                     help="print debug information")
+                    help="print debug information")
     parser.add_option_group(group)
 
     (options, args) = parser.parse_args(sys.argv[1:])
@@ -317,7 +327,7 @@ if __name__ == '__main__':
             sys.exit(EXIT_INVALID_DESTINATION)
         if not options.create_destination:
             print("{0} does not exist and shall now be created.".
-                  format(destination))
+                format(destination))
             sys.exit(EXIT_INVALID_DESTINATION)
         os.makedirs(destination)
 
@@ -344,15 +354,15 @@ if __name__ == '__main__':
     stderr_handler = logging.StreamHandler(sys.stderr)
     logfile_handler = logging.NullHandler()
     logfile_handler = logging.handlers.RotatingFileHandler(logfile,
-                                                           backupCount=9)
+                                                        backupCount=9)
 
     if need_rollover:
         logfile_handler.doRollover()
 
     stdout_handler.addFilter(LevelFilter(minlvl=logging.NOTSET,
-                                         maxlvl=logging.WARNING - 1))
+                                        maxlvl=logging.WARNING - 1))
     stderr_handler.addFilter(LevelFilter(minlvl=logging.WARNING,
-                                         maxlvl=logging.CRITICAL))
+                                        maxlvl=logging.CRITICAL))
 
     console_logging_level = logging.INFO
     if options.debug:
@@ -391,7 +401,7 @@ if __name__ == '__main__':
     for path in args:
         if os.path.isdir(path):
             for list_path in get_lists(path, recursive=recursive,
-                                       list_extension=list_extension):
+                                    list_extension=list_extension):
                 if list_path in paths:
                     logger.info("%s already encountered, ignored.", list_path)
                 else:
@@ -447,7 +457,7 @@ if __name__ == '__main__':
 
     for (path, subreddits) in lists:
         logger.debug("Working on list \"%s\" with subreddits %s.", path,
-                     subreddits)
+                    subreddits)
         list_destination = os.path.join(
             destination, os.path.basename(path)[:-len(list_extension)])
         logger.debug("Desination set to \"%s\"", list_destination)
@@ -456,10 +466,10 @@ if __name__ == '__main__':
             if os.path.exists(list_destination):
                 logger.debug("\"%s\" is a valid path.", list_destination)
                 logger.error("Invalid destination: %s. Skipping list %s",
-                             list_destination, path)
+                            list_destination, path)
                 continue
             logger.debug("Creating destination directory \"%s\".",
-                         list_destination)
+                        list_destination)
             os.makedirs(list_destination)
         logger.info("Downloading subreddits in list \"%s\" into folder \"%s\"",
                     os.path.basename(path), list_destination)
@@ -479,9 +489,11 @@ if __name__ == '__main__':
                         "verbose": verbose,
                         "flood_timeout": flood_timeout})
             process.start()
+            # prevent all processes from starting simultaneously. Not actually
+            # necessary, as all requests to reddit adhere to the 2000ms
+            # timeout, but good to preserve correct order of startup.
+            time.sleep(0.2)
             logger.debug("Started process %s", process.name)
-            # prevent all processes from starting simultaneously
-            time.sleep(flood_timeout/1000)
         logger.debug("Waiting for processes to finish ...")
         processqueue.join()
         logger.debug("All processes finished.")

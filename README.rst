@@ -1,5 +1,6 @@
-reddit-download
-===============
+======
+Readme
+======
 
 Work in progress.
 
@@ -25,8 +26,7 @@ have, run the following:
 
     python redditdownload.py wallpaper wallpaper -score 50 -update
 
-Advanced Examples
-=================
+Advanced Examples:
 
 Retrieve last 10 pics in the 'wallpaper' subreddit with the word
 "sunset" in the title (note: case is ignored by (?i) predicate)

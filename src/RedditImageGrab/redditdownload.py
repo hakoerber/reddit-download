@@ -11,12 +11,15 @@ import logging
 import sys
 import multiprocessing
 import time
+import socket
+
 import requests
 
 from . import reddit
 
 USER_AGENT = ("reddit-download script. "
               "http://github.com/whatevsz/reddit-download")
+TIMEOUT = 10.0
 
 logger = logging.getLogger()
 
@@ -31,11 +34,11 @@ class FileExistsException(Exception):
 
 request_timeout_lock = multiprocessing.Lock()
 request_imgur_album_lock = multiprocessing.Lock()
-
-
 last_request = 0
 firstrun = True
-def urlopen_timeout_wrapper(url, lock, timeout=1000):
+
+
+def urlopen_timeout_wrapper(url, lock, timeout=200):
     global last_request, firstrun
     # sends a request and locks for timeout milliseconds
     with lock:
@@ -47,7 +50,13 @@ def urlopen_timeout_wrapper(url, lock, timeout=1000):
         last_request = time.monotonic()
 
         logger.debug("Opening URL \"%s\"", url)
-        response = requests.get(url)
+        response = None
+        try:
+            response = requests.get(url, timeout=TIMEOUT)
+        except (requests.packages.urllib3.exceptions.TimeoutError,
+                requests.exceptions.Timeout,
+                socket.timeout) as error:
+            raise
 
     return response
 
@@ -60,9 +69,14 @@ def download_from_url(url, destination, identifier, files_in_dest,
 
     # Imgur does not care about extensions. If a MIME type is available, we
     # will change the extension accordingly if necessary
-
-    response = urlopen_timeout_wrapper(url, request_timeout_lock)
+    response = None
+    try:
+        response = urlopen_timeout_wrapper(url, request_timeout_lock)
+    except (requests.packages.urllib3.exceptions.TimeoutError,
+            requests.exceptions.Timeout, socket.timeout) as error:
+        raise
     extension_mime = None
+    filetype_mime = None
     if 'content-type' in response.headers.keys():
         filetype_mime = response.headers['content-type']
     if filetype_mime == "image/jpeg" or filetype_mime == "image/jpg":
@@ -95,17 +109,37 @@ def download_from_url(url, destination, identifier, files_in_dest,
 
     dest_path = os.path.join(destination, dest_file_name)
 
-    with open(dest_path, 'wb') as filehandle:
+    # wtf python, figure it out
+    filehandle = None
+    try:
+        filehandle = open(dest_path, 'wb')
         filehandle.write(response.content)
+    except OSError as error:
+        if error.errno == 36:
+            # dirty as fuck, i dont care anymore
+            pass
+            #dest_file_name = truncate_filename(dest_file_name,
+            #                                   20)
+            #dest_path = os.path.join(destination, dest_file_name)
+            #with open(dest_path, 'wb') as filehandle:
+            #    filehandle.write(response.content)
+        else:
+            raise
+    finally:
+        if filehandle:
+            filehandle.close()
 
     logger.verbose('Downloaded URL \"%s\" to \"%s\".', url,
                    dest_path)
 
 
-
 def extract_imgur_album_urls(album_url):
-    response = \
-        urlopen_timeout_wrapper(album_url, lock=request_imgur_album_lock)
+    try:
+        response = \
+            urlopen_timeout_wrapper(album_url, lock=request_imgur_album_lock)
+    except (requests.packages.urllib3.exceptions.TimeoutError,
+            requests.exceptions.Timeout, socket.timeout) as error:
+        return []
     hash_regex = re.compile(r'\"hash\":\"(.[^\"]*)\"')
     items = []
     with io.StringIO(response.text) as memfile:
@@ -133,8 +167,7 @@ def extract_urls(url):
     elif 'imgur.com' in url:
         logger.warning("\"%s\" might be an imgur URL. Please investigate.",
                        url)
-    else:
-        return [url]
+    return [url]
 
 
 def truncate_filename(file_name, limit):
@@ -161,7 +194,7 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
 
     files_in_dest = os.listdir(destination)
     # Extensions are not significant
-    files_in_dest = [ os.path.splitext(f)[0] for f in files_in_dest ]
+    files_in_dest = [os.path.splitext(f)[0] for f in files_in_dest]
     max_filename_len = os.statvfs(destination)[9]
     processed = 0
     downloaded = 0
@@ -183,6 +216,8 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
 
     for link in links:
         processed += 1
+        if not link:
+            continue
         identifier = get_identifier(link.title)
 
         if link.score < score:
@@ -212,20 +247,26 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
         try:
             urls = extract_urls(link.url)
 
-        except (urllib.error.HTTPError, urllib.error.URLError,
-                http.client.HTTPException, TimeoutError,
-                UnicodeEncodeError, ConnectionError,
+        except (urllib.error.HTTPError,
+                urllib.error.URLError,
+                http.client.HTTPException,
+                TimeoutError,
+                UnicodeEncodeError,
+                ConnectionError,
                 requests.exceptions.RequestException,
                 requests.exceptions.ConnectionError,
                 requests.exceptions.HTTPError,
                 requests.packages.urllib3.exceptions.DecodeError,
-                requests.packages.urllib3.exceptions.LocationParseError)\
-                    as error:
+                requests.packages.urllib3.exceptions.LocationParseError,
+                ValueError) as error:
             if urls:
                 if len(urls) == 1:
                     urls = urls[0]
                 logger.verbose("Error %s for %s", repr(error), urls)
             errors += 1
+            continue
+
+        if not urls:
             continue
 
         for url in urls:
@@ -252,19 +293,27 @@ def download(subreddit, destination, last, score, num, update, sfw, nsfw,
                 if not quiet:
                     logger.verbose('%s', error)
                 skipped += 1
+            except (requests.packages.urllib3.exceptions.TimeoutError,
+                    requests.exceptions.Timeout, socket.timeout) as error:
+                logger.verbose("Connection to \"%s\" timed out.", url)
+                errors += 1
+                continue
             except FileExistsException as error:
                 if not quiet:
                     logger.verbose('%s', error)
                 skipped += 1
-            except (urllib.error.HTTPError, urllib.error.URLError,
-                    http.client.HTTPException, TimeoutError,
-                    UnicodeEncodeError, ConnectionError,
+            except (urllib.error.HTTPError,
+                    urllib.error.URLError,
+                    http.client.HTTPException,
+                    TimeoutError,
+                    UnicodeEncodeError,
+                    ConnectionError,
                     requests.exceptions.RequestException,
                     requests.exceptions.ConnectionError,
                     requests.exceptions.HTTPError,
                     requests.packages.urllib3.exceptions.DecodeError,
-                    requests.packages.urllib3.exceptions.LocationParseError)\
-                        as error:
+                    requests.packages.urllib3.exceptions.LocationParseError,
+                    ValueError) as error:
                 if urls:
                     if len(urls) == 1:
                         urls = urls[0]

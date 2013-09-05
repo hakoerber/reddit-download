@@ -19,10 +19,15 @@
 import multiprocessing
 import time
 import logging
+import socket
+
 import requests
 
+USER_AGENT = ("reddit-download script. "
+              "http://github.com/whatevsz/reddit-download")
 REDDIT_LINK_LIMIT = 1000
 REDDIT_MIN_TIMEOUT = 2000
+TIMEOUT = 10.0
 
 logger = logging.getLogger()
 
@@ -59,7 +64,7 @@ def get_links(subreddit, timeout=REDDIT_MIN_TIMEOUT, limit=None, headers=None,
 
     url = "http://www.reddit.com/r/" + subreddit + ".json"
 
-    headers = {'User-Agent': 'Testing a scipt. /u/whatevsz.'}
+    headers = {'User-Agent': USER_AGENT}
 
     headers = headers or {}
     params = params or {}
@@ -83,18 +88,36 @@ def get_links(subreddit, timeout=REDDIT_MIN_TIMEOUT, limit=None, headers=None,
                 time.sleep(sleeptime)
             firstrun = False
             last_request = time.monotonic()
-
-            json_data = requests.get(
-                url, params=params, headers=headers).json()
-        for link in json_data["data"]["children"]:
-            link_data = link["data"]
-            link = RedditLink(link_data["title"], link_data["url"],
-                              link_data["name"], link_data["score"],
-                              link_data["over_18"])
-            yield link
-            links += 1
-            if links >= limit:
-                return
+            json_data = None
+            try:
+                json_data = requests.get(
+                    url, params=params, headers=headers, timeout=TIMEOUT).\
+                    json()
+            except (requests.packages.urllib3.exceptions.TimeoutError,
+                    TimeoutError, requests.exceptions.Timeout,
+                    socket.timeout) as error:
+                logger.verbose("Connection to \"%s\" timed out.", url)
+            except ValueError as error:
+                pass
+            try:
+                if json_data:
+                    for link in json_data["data"]["children"]:
+                        link_data = link["data"]
+                        link = RedditLink(link_data["title"],
+                                          link_data["url"],
+                                          link_data["name"],
+                                          link_data["score"],
+                                          link_data["over_18"])
+                        yield link
+                        links += 1
+                        if links >= limit:
+                            return
+                else:
+                    return
+            except KeyError as error:
+                logger.error("URL \"%s\" returned an invalid JSON. Skipping "
+                             "this page.", url)
+                continue
         after = json_data["data"]["after"]
         if not after:
             # last page

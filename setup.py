@@ -13,7 +13,7 @@ setup(
 
       license = 'GNU GPL',
       platforms = ['Linux'],
-      description = 'A script to download images on reddit',
+      description = 'A downloader for images from reddit.',
       long_description = open('README').read(),
 
       package_dir = {'reddit-download': 'src'},
@@ -34,5 +34,6 @@ setup(
           'Programming Language :: Python :: 3.3',
           'Topic :: Internet',
           'Topic :: Multimedia :: Graphics'
-          ]
+          ],
+      keywords = "reddit image imgur download"
       )

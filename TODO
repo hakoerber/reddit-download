@@ -1,9 +1,23 @@
 shuffle functionality for all subreddits
+
 maybe option to limit OVERALL downloads, not just per subreddit?
+
 better statistics
-check for race conditions in RedditImageGrab (hint: there are thousands)
-check if --update works
+
+check for race conditions in RedditImageGrab
+
 windows compatibility
+
 maybe use multiprocessing instead of mutlithreading?
+
 what if no internet connection?
+
 check those exceptions
+
+print some info about threads maybe
+
+
+try to limit overall requests by implementing something similar to the
+--update function
+
+different timeouts for different hosts?
